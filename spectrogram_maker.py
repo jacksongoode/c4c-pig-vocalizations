@@ -12,7 +12,7 @@ max_duration = 4.5  # seconds
 window_duration = 0.03  # 0.03 seconds
 window_length = int(window_duration * sr)  # number of samples in the window
 noverlap = int(0.99 * window_length)  # overlap
-nfft = 512
+nfft = 2048
 hop_length = window_length - noverlap  # hop length
 
 # Data folder path (updated to use uv dataset)
