@@ -34,10 +34,10 @@ if __name__ == '__main__':
 
     # Extract columns (adjust column names/indexes based on actual data)
     # For this example, we assume the Excel has columns: 'File', 'Valence', 'Context', 'Site'
-    Files = data['File'].tolist()
+    Files = data['Spectrogram Filename'].tolist()
     Valence = data['Valence'].tolist()
     Context = data['Context'].tolist()
-    Site = data['Site'].tolist()
+    Site = data['Recording Team'].tolist()
 
     # Convert labels to numeric categories
     # Create mappings for valence and context

@@ -15,7 +15,7 @@ def load_and_preprocess_image(path):
     # Expect images to be in JPEG or PNG
     image = tf.image.decode_image(image, channels=3)
     image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize(image, IMAGE_SIZE)
+    image = tf.image.resize_with_pad(image, IMAGE_SIZE[0], IMAGE_SIZE[1])
     return image
 
 
@@ -141,7 +141,8 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
     history = model.fit(
         train_ds,
         validation_data=val_ds,
-        epochs=20,
+        # epochs=20,
+        epochs=1,  # For demonstration purposes
         callbacks=[checkpoint_cb, earlystop_cb]
     )
 
