@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 import os
 from werkzeug.utils import secure_filename
+import tensorflow as tf  # added import for tensorflow
 
 app = Flask(__name__)
 
@@ -9,14 +10,30 @@ UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Dummy function to process audio file. Replace this with your model prediction logic.
+# Load model checkpoint if available
+CHECKPOINT_PATH = os.path.join(os.getcwd(), 'checkpoints', 'Valence', 'Iter1', 'model_checkpoint_01.h5')
+if os.path.exists(CHECKPOINT_PATH):
+    try:
+        model = tf.keras.models.load_model(CHECKPOINT_PATH)
+        print('Loaded model from checkpoint:', CHECKPOINT_PATH)
+    except Exception as e:
+        print('Error loading model:', e)
+        model = None
+else:
+    model = None
+
+# Updated dummy function to process audio file using the loaded model if available
 def process_audio(file_path):
-    # Here you can incorporate your audio processing pipeline, e.g., computing a spectrogram and running your model.
-    # For demo purposes, we return a dummy JSON result.
+    # Here you can incorporate your audio processing pipeline
+    # For now, if the model is loaded, simulate a prediction response
+    if model is not None:
+        prediction = 'Prediction from checkpoint model'
+    else:
+        prediction = 'Dummy classification'
     result = {
         "message": "Audio processed successfully",
         "file": os.path.basename(file_path),
-        "prediction": "Dummy classification"
+        "prediction": prediction
     }
     return result
 
