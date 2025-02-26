@@ -128,3 +128,21 @@ if __name__ == '__main__':
     print("Overall Context Metrics:", overall_metrics_con)
     print("Site-wise Valence Accuracies:", dict(site_accuracy_val))
     print("Site-wise Context Accuracies:", dict(site_accuracy_con))
+
+    # New block to run site_validation_imds from the nn_function overall
+    try:
+        from site_validation_imds import site_validation_imds
+        import os
+        # Define the directory containing the soundwel images
+        image_dir = 'soundwel'
+        # List image files in the directory with extensions png, jpg, jpeg
+        image_files = [f for f in os.listdir(image_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        # Create dummy labels (e.g., all zeros)
+        dummy_labels = [0] * len(image_files)
+
+        print('Running site_validation_imds on image files:', image_files)
+        ds_site = site_validation_imds(image_files, dummy_labels, base_dir=image_dir)
+        for images, labs in ds_site.take(1):
+            print('Site validation batch images shape:', images.shape, 'labels:', labs)
+    except Exception as e:
+        print('Error during site validation:', e)
