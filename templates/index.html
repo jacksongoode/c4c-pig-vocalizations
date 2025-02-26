@@ -57,7 +57,19 @@
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
+    pre {
+      background: #f8f8f8;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow-x: auto;
+    }
+    code {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.9rem;
+    }
   </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.0/styles/default.min.css">
 </head>
 <body>
   <div class="container">
@@ -70,7 +82,11 @@
     <div id="results"></div>
     <img id="spectrogram" src="" alt="Spectrogram will appear here" style="display:none;">
   </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.0/languages/json.min.js"></script>
   <script>
+    hljs.highlightAll();
+
     const form = document.getElementById('upload-form');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -84,7 +100,8 @@
       try {
         const response = await fetch('/upload', { method: 'POST', body: formData });
         const result = await response.json();
-        document.getElementById('results').innerText = JSON.stringify(result, null, 2);
+        const formattedJson = JSON.stringify(result, null, 2);
+        document.getElementById('results').innerHTML = `<pre><code class="json">${formattedJson}</code></pre>`;
         if (result.spectrogram) {
           const spectrogram = document.getElementById('spectrogram');
           spectrogram.src = result.spectrogram;
