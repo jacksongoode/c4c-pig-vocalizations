@@ -35,6 +35,10 @@ if __name__ == '__main__':
     # Extract columns (adjust column names/indexes based on actual data)
     # For this example, we assume the Excel has columns: 'File', 'Valence', 'Context', 'Site'
     Files = data['Spectrogram Filename'].tolist()
+
+    # Append directory to Files
+    Files = [os.path.join('soundwel', f) for f in Files]
+
     Valence = data['Valence'].tolist()
     Context = data['Context'].tolist()
     Site = data['Recording Team'].tolist()
