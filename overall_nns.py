@@ -40,17 +40,14 @@ if __name__ == '__main__':
     Files = [os.path.join('soundwel', f) for f in Files]
 
     Valence = data['Valence'].tolist()
-    Context = data['Context'].tolist()
     Site = data['Recording Team'].tolist()
 
     # Convert labels to numeric categories
     # Create mappings for valence and context
     valence_categories = {cat: idx for idx, cat in enumerate(sorted(set(Valence)))}
-    context_categories = {cat: idx for idx, cat in enumerate(sorted(set(Context)))}
     site_labels = sorted(set(Site))
 
     Valence_numeric = [valence_categories[x] for x in Valence]
-    Context_numeric = [context_categories[x] for x in Context]
 
     # Define checkpoint directory bases
     checkpoint_base_val = os.path.join('checkpoints', 'Valence')
@@ -60,12 +57,10 @@ if __name__ == '__main__':
 
     # Dictionaries to store metrics
     overall_metrics_val = {}
-    overall_metrics_con = {}
     site_accuracy_val = defaultdict(dict)
-    site_accuracy_con = defaultdict(dict)
 
     # Loop over 12 iterations (mimicking MATLAB for i = 1:12)
-    for i in range(1, 13):
+    for i in range(1, 2):
         print(f"Beginning Loop: {i}")
 
         # Define checkpoint directory for this iteration
@@ -79,34 +74,31 @@ if __name__ == '__main__':
             Files, Valence_numeric, equalize_labels=True, minibatch_size=32, validation_patience=5, checkpoint_path=cp_val
         )
 
-        # Train NN on context
-        model_con, train_ds_con, val_ds_con, val_labels_con, val_label_counts_con, _ = nn_function(
-            Files, Context_numeric, equalize_labels=False, minibatch_size=32, validation_patience=5, checkpoint_path=cp_con
-        )
+        # # Train NN on context
+        # model_con, train_ds_con, val_ds_con, val_labels_con, val_label_counts_con, _ = nn_function(
+        #     Files, Context_numeric, equalize_labels=False, minibatch_size=32, validation_patience=5, checkpoint_path=cp_con
+        # )
 
         # Fine-tune for classification
         model_val = nn_prep_for_classify(model_val, val_ds_val, train_ds_val)
-        model_con = nn_prep_for_classify(model_con, val_ds_con, train_ds_con)
+        # model_con = nn_prep_for_classify(model_con, val_ds_con, train_ds_con)
 
         # Get predictions on the validation set
         pred_val = classify_dataset(model_val, val_ds_val)
-        pred_con = classify_dataset(model_con, val_ds_con)
+        # pred_con = classify_dataset(model_con, val_ds_con)
 
         # Calculate overall accuracy
         acc_val = compute_accuracy(pred_val, val_labels_val)
-        acc_con = compute_accuracy(pred_con, val_labels_con)
-        print(f"Iteration {i} - Valence Accuracy: {acc_val:.2f}, Context Accuracy: {acc_con:.2f}")
+        # acc_con = compute_accuracy(pred_con, val_labels_con)
+        print(f"Iteration {i} - Valence Accuracy: {acc_val:.2f}")
 
         # Compute confusion matrices
         conf_val = confusion_matrix(val_labels_val, pred_val)
-        conf_con = confusion_matrix(val_labels_con, pred_con)
 
         # Compute performance metrics using f1_metrics
         prec_val, rec_val, f1_val, wprec_val, wrec_val, wf1_val = f1_metrics(conf_val, list(val_label_counts_val.values()))
-        prec_con, rec_con, f1_con, wprec_con, wrec_con, wf1_con = f1_metrics(conf_con, list(val_label_counts_con.values()))
 
         overall_metrics_val[i] = {'accuracy': acc_val, 'weighted_precision': wprec_val, 'weighted_recall': wrec_val, 'weighted_f1': wf1_val}
-        overall_metrics_con[i] = {'accuracy': acc_con, 'weighted_precision': wprec_con, 'weighted_recall': wrec_con, 'weighted_f1': wf1_con}
 
         # Site-specific accuracy
         # Determine indices for validation set files
@@ -125,13 +117,10 @@ if __name__ == '__main__':
             # For demonstration, we pretend all validation samples belong to the site
             # Replace with proper filtering if file paths include site information
             site_accuracy_val[site][i] = acc_val
-            site_accuracy_con[site][i] = acc_con
 
     # Save metrics to file or print summary
     print("Overall Valence Metrics:", overall_metrics_val)
-    print("Overall Context Metrics:", overall_metrics_con)
     print("Site-wise Valence Accuracies:", dict(site_accuracy_val))
-    print("Site-wise Context Accuracies:", dict(site_accuracy_con))
 
     # New block to run site_validation_imds from the nn_function overall
     try:
