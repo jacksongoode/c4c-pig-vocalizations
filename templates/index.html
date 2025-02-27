@@ -25,9 +25,32 @@
       text-align: center;
     }
     h1 {
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
       font-size: 1.5rem;
       color: #333333;
+    }
+    .info-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .info-pill {
+      background-color: #f0f7ff;
+      border-left: 4px solid #2196F3;
+      padding: 0.75rem;
+      border-radius: 4px;
+      text-align: left;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    .info-pill a {
+      color: #2196F3;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .info-pill a:hover {
+      text-decoration: underline;
     }
     .form-group {
       display: flex;
@@ -38,26 +61,24 @@
       padding: 0.5rem;
       width: 100%;
     }
-    .file-input-btn {
+    .button {
       padding: 0.5rem 1rem;
       border-radius: 2px;
-      background-color: #4CAF50;
       color: #ffffff;
       border: none;
       cursor: pointer;
       transition: background-color 0.2s ease;
+      font-family: Arial, sans-serif;
+      font-size: 0.9rem;
+    }
+    .file-input-btn {
+      background-color: #757575;
     }
     .file-input-btn:hover {
-      background-color: #45A049;
+      background-color: #616161;
     }
     .submit-button {
-      padding: 0.5rem 1rem;
-      border-radius: 2px;
       background-color: #2196F3;
-      color: #ffffff;
-      border: none;
-      cursor: pointer;
-      transition: background-color 0.2s ease;
     }
     .submit-button:hover {
       background-color: #1976D2;
@@ -79,11 +100,11 @@
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       overflow-x: auto;
+      text-align: left;
     }
     code {
       font-family: 'Courier New', monospace;
       font-size: 0.9rem;
-      text-align: left;
     }
     .file-input {
       flex-grow: 1;
@@ -104,12 +125,24 @@
 <body>
   <div class="container">
     <h1>Upload Audio File</h1>
+
+    <div class="info-pills">
+      <div class="info-pill">
+        <strong>Dataset:</strong> This tool analyzes pig vocalizations from the SoundWel project, which aims to understand the encoding of emotion in pig calls to develop a welfare assessment tool.
+        <a href="https://www.soundwel-project.eu/" target="_blank">Learn more</a>
+      </div>
+      <div class="info-pill">
+        <strong>Evaluation:</strong> The classifier was trained on spectrograms of pig calls to identify emotional valence and context of production from birth to slaughter, using ResNet-50 CNN architecture.
+        <a href="https://github.com/CiaraCR/PigCallClassifier" target="_blank">View code</a>
+      </div>
+    </div>
+
     <form id="upload-form" enctype="multipart/form-data">
       <div class="form-group">
-        <label for="audio-file" class="file-input-btn">Browse</label>
+        <label for="audio-file" class="button file-input-btn">Browse</label>
         <span id="file-name" style="margin-left:10px;">No file chosen</span>
         <input type="file" id="audio-file" name="audio-file" accept="audio/*" required style="display:none;">
-        <input type="submit" class="submit-button" value="Upload">
+        <input type="submit" class="button submit-button" value="Upload">
       </div>
     </form>
     <div id="results"></div>

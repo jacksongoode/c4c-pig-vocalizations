@@ -46,8 +46,8 @@ def create_dataset(file_paths, batch_size=1):
 
 if __name__ == '__main__':
     # Load the model from the checkpoint
-    model_val = tf.keras.models.load_model('checkpoints/Valence/Iter1/model_checkpoint_01.h5')
-    model_con = tf.keras.models.load_model('checkpoints/Context/Iter1/model_checkpoint_01.h5')
+    model_val = tf.keras.models.load_model('checkpoints/Valence/Iter1/model_checkpoint_08_save.h5')
+    # model_con = tf.keras.models.load_model('checkpoints/Context/Iter1/model_checkpoint_08_save.h5')
 
     files = glob('test_soundwel/*.png')
 
@@ -56,10 +56,10 @@ if __name__ == '__main__':
 
     # Get predictions on the validation set
     pred_val = classify_dataset(model_val, ds)
-    pred_con = classify_dataset(model_con, ds)
+    # pred_con = classify_dataset(model_con, ds)
 
     # Print out the predictions
     print("Valence")
     print(pred_val)
-    print("Context")
-    print(pred_con)
+    # print("Context")
+    # print(pred_con)

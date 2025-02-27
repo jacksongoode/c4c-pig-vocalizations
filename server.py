@@ -16,7 +16,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Load model checkpoint if available
-CHECKPOINT_PATH = os.path.join(os.getcwd(), 'checkpoints', 'Valence', 'Iter1', 'model_checkpoint_01.h5')
+CHECKPOINT_PATH = os.path.join(os.getcwd(), 'checkpoints', 'Valence', 'Iter1', 'model_checkpoint_08_save.h5')
 if os.path.exists(CHECKPOINT_PATH):
     try:
         model = tf.keras.models.load_model(CHECKPOINT_PATH)
