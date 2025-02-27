@@ -9,7 +9,7 @@ from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-from torchvision import models, transforms
+from torchvision import models
 
 # Check if MPS is available
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -22,19 +22,14 @@ MOMENTUM = 0.9
 LEARN_RATE_DROP_PERIOD = 5
 LEARN_RATE_DROP_FACTOR = 10 ** (-0.5)
 
-# Set a default image size for ResNet50
-IMAGE_SIZE = (224, 224)
-
-
 class ImageDataset(Dataset):
     """PyTorch Dataset for loading images from file paths."""
 
     def __init__(self, file_paths, labels=None):
         self.file_paths = file_paths
         self.labels = labels
-        self.transform = transforms.Compose(
-            [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
-        )
+        # Use the official inference transforms from ResNet50_Weights.IMAGENET1K_V1
+        self.transform = models.ResNet50_Weights.IMAGENET1K_V1.transforms()
 
     def __len__(self):
         return len(self.file_paths)
