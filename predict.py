@@ -1,65 +1,83 @@
 import os
+import torch
 import numpy as np
-import pandas as pd
-import tensorflow as tf
 from glob import glob
+from torchvision import transforms
+from PIL import Image
+from torch.utils.data import Dataset, DataLoader
+
+# Check if MPS is available
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # Set a default image size for ResNet50
 IMAGE_SIZE = (224, 224)
 
-# Helper function to classify a dataset using the Keras model
-
-def classify_dataset(model, dataset):
+# Helper function to classify a dataset using the PyTorch model
+def classify_dataset(model, dataloader):
     """Return predicted labels for the dataset."""
-    # Predict probabilities
-    preds = model.predict(dataset, verbose=0)
-    # Convert to integer labels via argmax
-    pred_labels = np.argmax(preds, axis=1)
-    return pred_labels
+    model.eval()
+    all_preds = []
+
+    with torch.no_grad():
+        for inputs in dataloader:
+            inputs = inputs.to(device)
+            # Forward pass
+            outputs = model(inputs)
+            # Get predictions
+            _, predicted = torch.max(outputs, 1)
+            all_preds.extend(predicted.cpu().numpy())
+
+    return np.array(all_preds)
 
 
-# Helper functions to load images and create a dataset 
-def load_and_preprocess_image(path):
-    """Load an image from a file, decode it, convert to float32 and resize."""
-    image = tf.io.read_file(path)
-    # Expect images to be in JPEG or PNG
-    image = tf.image.decode_image(image, channels=3)
-    image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize_with_pad(image, IMAGE_SIZE[0], IMAGE_SIZE[1])
-    return image
+# Create a dataset for prediction (no labels)
+class PredictionDataset(Dataset):
+    def __init__(self, file_paths):
+        self.file_paths = file_paths
+        self.transform = transforms.Compose([
+            transforms.Resize(IMAGE_SIZE),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.file_paths[idx]
+        image = Image.open(img_path).convert('RGB')
+        image = self.transform(image)
+        return image
 
 
 def create_dataset(file_paths, batch_size=1):
-    """Create a tf.data.Dataset from file paths and labels."""
-    # Convert lists to tensors
-    file_paths = tf.constant(file_paths)
-
-    def _load_function(path):
-        image = load_and_preprocess_image(path)
-        return image
-
-    ds = tf.data.Dataset.from_tensor_slices((file_paths))
-    ds = ds.map(_load_function, num_parallel_calls=tf.data.AUTOTUNE)
-    ds = ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
-    return ds
+    """Create a DataLoader from file paths."""
+    dataset = PredictionDataset(file_paths)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    return dataloader
 
 
 if __name__ == '__main__':
     # Load the model from the checkpoint
-    model_val = tf.keras.models.load_model('checkpoints/Valence/Iter1/model_checkpoint_08_save.h5')
-    # model_con = tf.keras.models.load_model('checkpoints/Context/Iter1/model_checkpoint_08_save.h5')
+    model_val = torch.load('checkpoints/Valence/Iter1/model_checkpoint_best.pt', map_location=device)
+    model_con = torch.load('checkpoints/Context/Iter1/model_checkpoint_best.pt', map_location=device)
+
+    # Set models to evaluation mode
+    model_val.eval()
+    model_con.eval()
 
     files = glob('test_soundwel/*.png')
 
-    # Create the dataset 
-    ds = create_dataset(files)
+    # Create the dataset
+    dataloader = create_dataset(files)
 
-    # Get predictions on the validation set
-    pred_val = classify_dataset(model_val, ds)
-    # pred_con = classify_dataset(model_con, ds)
+    # Get predictions
+    pred_val = classify_dataset(model_val, dataloader)
+    pred_con = classify_dataset(model_con, dataloader)
 
     # Print out the predictions
     print("Valence")
     print(pred_val)
-    # print("Context")
-    # print(pred_con)
+    print("Context")
+    print(pred_con)

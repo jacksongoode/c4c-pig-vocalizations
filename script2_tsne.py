@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from sklearn.manifold import TSNE
 
 # Load features. Assuming features are saved as a numpy array in 'con_features.npy'
@@ -47,7 +48,6 @@ tsne = TSNE(perplexity=25, random_state=4)
 con_tsne = tsne.fit_transform(con_features)
 
 # For color mapping, we'll use a list of distinct colors
-import matplotlib.cm as cm
 colors = cm.get_cmap('tab20', len(contextlabels))
 
 plt.figure()
@@ -65,7 +65,7 @@ plt.show()
 # Additional plot for Site labels if needed
 plt.figure()
 unique_sites = np.unique(Site)
-for i, site in enumerate(unique_sites):
+for site in unique_sites:
     idx = (Site == site)
     plt.scatter(con_tsne[idx, 0], con_tsne[idx, 1], s=20, alpha=0.6, label=site)
 plt.title('t-SNE for Site Labels')

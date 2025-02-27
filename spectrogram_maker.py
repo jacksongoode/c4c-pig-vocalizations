@@ -12,15 +12,15 @@ max_duration = 4.5  # seconds
 window_duration = 0.03  # 0.03 seconds
 window_length = int(window_duration * sr)  # number of samples in the window
 noverlap = int(0.99 * window_length)  # overlap
-nfft = 2048
+nfft = 512  # Changed from 2048 to 512 to match MATLAB implementation
 hop_length = window_length - noverlap  # hop length
 
-# Data folder path (updated to use uv dataset)
-dataFolder = '/Users/jackson/GitHub/PigCallClassifier/uv'
+# Data folder path (using relative path)
+dataFolder = 'soundwel'
 
 # Walk through the directory recursively to find .wav files
 wav_files = []
-for root, dirs, files in os.walk(dataFolder):
+for root, _, files in os.walk(dataFolder):
     for file in files:
         if file.lower().endswith('.wav'):
             wav_files.append(os.path.join(root, file))

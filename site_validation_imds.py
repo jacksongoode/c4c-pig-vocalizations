@@ -1,13 +1,56 @@
 import os
-import tensorflow as tf
+import torch
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from PIL import Image
+
+# Check if MPS is available
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # Set target image dimensions
 IMAGE_SIZE = (224, 224)
 
 
-def site_validation_imds(files, labels, base_dir="/Users/jackson/GitHub/PigCallClassifier/Properly_Renamed_Vocals"):
+class SiteValidationDataset(Dataset):
+    """Dataset for site validation images."""
+    def __init__(self, files, labels, base_dir="soundwel"):
+        self.files = files
+        self.labels = labels
+        self.base_dir = base_dir
+        self.transform = transforms.Compose([
+            transforms.Resize(IMAGE_SIZE),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.base_dir, self.files[idx])
+        label = self.labels[idx]
+
+        # Check if file exists and is an image
+        is_image = img_path.lower().endswith(('.png', '.jpg', '.jpeg'))
+
+        if os.path.exists(img_path) and is_image:
+            try:
+                image = Image.open(img_path).convert('RGB')
+                image = self.transform(image)
+            except Exception:
+                # Return a blank image if there's an error
+                image = torch.zeros((3, IMAGE_SIZE[0], IMAGE_SIZE[1]))
+        else:
+            # Return a blank image for non-images
+            image = torch.zeros((3, IMAGE_SIZE[0], IMAGE_SIZE[1]))
+
+        return image, label
+
+
+def site_validation_imds(files, labels, base_dir="soundwel"):
     """
-    Creates a tf.data.Dataset for site validation images.
+    Creates a DataLoader for site validation images.
 
     Parameters:
         files (list): List of file paths (strings). These are appended to the base_dir.
@@ -15,44 +58,23 @@ def site_validation_imds(files, labels, base_dir="/Users/jackson/GitHub/PigCallC
         base_dir (str): Base directory path where the images are located.
 
     Returns:
-        tf.data.Dataset: A dataset that yields batches of (image, label) pairs.
+        DataLoader: A DataLoader that yields batches of (image, label) pairs.
     """
-    # Prepend the base directory to each file path
-    full_filenames = [os.path.join(base_dir, f) for f in files]
+    # Create dataset
+    dataset = SiteValidationDataset(files, labels, base_dir)
 
-    # Create tf.data.Dataset
-    ds = tf.data.Dataset.from_tensor_slices((full_filenames, labels))
+    # Create dataloader
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=False)
 
-    def _load_and_preprocess(path, label):
-        # Read file contents
-        file_contents = tf.io.read_file(path)
-        # Check file extension by converting to lower-case and splitting
-        ext = tf.strings.lower(tf.strings.split(path, '\\.')[-1])
-        is_image = tf.reduce_any(tf.equal(ext, tf.constant(['png', 'jpg', 'jpeg'])))
-
-        def process_image():
-            image = tf.image.decode_image(file_contents, channels=3)
-            image.set_shape([None, None, 3])
-            image = tf.image.convert_image_dtype(image, tf.float32)
-            image = tf.image.resize(image, IMAGE_SIZE)
-            return image
-
-        def process_non_image():
-            # Return a dummy image tensor of zeros
-            return tf.zeros((IMAGE_SIZE[0], IMAGE_SIZE[1], 3), dtype=tf.float32)
-
-        image = tf.cond(is_image, process_image, process_non_image)
-        return image, label
-
-    ds = ds.map(_load_and_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
-    ds = ds.batch(32).prefetch(tf.data.AUTOTUNE)  # batch size set to 32 by default
-    return ds
+    return dataloader
 
 
 if __name__ == '__main__':
     # Example usage
     files = ["example1.jpg", "example2.jpg"]
     labels = [0, 1]
-    ds = site_validation_imds(files, labels)
-    for images, labs in ds.take(1):
+    dataloader = site_validation_imds(files, labels)
+    # Get the first batch to check
+    for images, labs in dataloader:
         print(images.shape, labs)
+        break
