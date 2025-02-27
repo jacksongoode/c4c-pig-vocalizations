@@ -141,8 +141,8 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
     history = model.fit(
         train_ds,
         validation_data=val_ds,
-        # epochs=20,
-        epochs=1,  # For demonstration purposes
+        epochs=20,
+        # epochs=1,  # For demonstration purposes
         callbacks=[checkpoint_cb, earlystop_cb]
     )
 
