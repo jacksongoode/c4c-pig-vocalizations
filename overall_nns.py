@@ -22,9 +22,9 @@ def classify_dataset(model, dataloader):
     with torch.no_grad():
         for inputs, _ in dataloader:
             inputs = inputs.to(device)
-            # Forward pass
-            outputs = model(inputs)
-            # Get predictions
+            # Use mixed precision if on CUDA
+            with torch.cuda.amp.autocast(enabled=(device.type=='cuda')):
+                outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
             all_preds.extend(predicted.cpu().numpy())
 
@@ -41,10 +41,10 @@ def compute_accuracy(pred_labels, true_labels):
 # Added helper function to run training, fine-tuning and evaluation for given label type
 
 def run_evaluation(files, numeric_labels, equalize, minibatch_size, validation_patience, checkpoint_path):
-    # Train NN
+    # Train NN with mixed precision support if using CUDA
     model, train_loader, val_loader, lbls, lbl_counts, _ = nn_function(
         files, numeric_labels, equalize_labels=equalize, minibatch_size=minibatch_size,
-        validation_patience=validation_patience, checkpoint_path=checkpoint_path
+        validation_patience=validation_patience, checkpoint_path=checkpoint_path, use_amp=(device.type=='cuda')
     )
 
     # Fine-tune for classification

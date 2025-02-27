@@ -87,9 +87,9 @@
           const valenceClass = result.valence_prediction === 0 ? 'text-red-500' : 'text-green-500';
           const valenceText = result.valence_prediction === 0 ? 'Negative Emotional State' : 'Positive Emotional State';
 
-          // Interpret the context prediction (example: 0 = Context A, 1 = Context B, etc.)
-          const contextClass = result.context_prediction === 0 ? 'text-blue-500' : 'text-purple-500';
-          const contextText = result.context_prediction === 0 ? 'Context A' : 'Context B'; // Update with actual context names
+          // Use the context prediction string directly for display
+          const contextText = result.context_prediction;
+          const contextClass = 'text-blue-500'; // You can update this to use a mapping if desired
 
           predictionEl.innerHTML = `
             <div class="${valenceClass} font-medium">Valence: ${valenceText}</div>

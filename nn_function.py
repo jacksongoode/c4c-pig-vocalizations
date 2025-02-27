@@ -98,7 +98,7 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_patience, checkpoint_path):
+def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_patience, checkpoint_path, use_amp=False):
     """
     Equivalent to MATLAB NN_function.m using PyTorch
     Parameters:
@@ -108,6 +108,7 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
         minibatch_size (int): Batch size for training.
         validation_patience (int): Patience for early stopping.
         checkpoint_path (str): Directory to save model checkpoints.
+        use_amp (bool): Whether to use mixed precision training.
 
     Returns:
         model: The trained PyTorch model.
@@ -165,6 +166,9 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
         path=os.path.join(checkpoint_path, 'model_checkpoint_best.pt')
     )
 
+    # Initialize GradScaler for mixed precision
+    scaler = torch.amp.GradScaler(enabled=use_amp)
+
     # Training loop
     n_epochs = 20
     for epoch in range(n_epochs):
@@ -180,13 +184,15 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
             # Zero the parameter gradients
             optimizer.zero_grad()
 
-            # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, target_labels)
+            # Use mixed precision if enabled
+            with torch.amp.autocast(device_type='cuda', enabled=use_amp):
+                outputs = model(inputs)
+                loss = criterion(outputs, target_labels)
 
-            # Backward pass and optimize
-            loss.backward()
-            optimizer.step()
+            # Scale the loss and backpropagate
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             # Statistics
             running_loss += loss.item() * inputs.size(0)
