@@ -61,10 +61,10 @@ def create_dataset(file_paths, batch_size=1):
 if __name__ == "__main__":
     # Load the model from the checkpoint
     model_val = torch.load(
-        "checkpoints/Valence/Iter1/model_checkpoint_best.pt", map_location=device
+        "checkpoints/Valence/save/model_checkpoint_best.pt", map_location=device
     )
     model_con = torch.load(
-        "checkpoints/Context/Iter1/model_checkpoint_best.pt", map_location=device
+        "checkpoints/Context/save/model_checkpoint_best.pt", map_location=device
     )
 
     # Set models to evaluation mode

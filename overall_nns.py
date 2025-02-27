@@ -7,6 +7,7 @@ from sklearn.metrics import confusion_matrix
 from metrics import f1_metrics
 from nn_function import nn_function
 from nn_prep_for_classify import nn_prep_for_classify
+import argparse
 
 # Check if MPS is available
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -22,8 +23,10 @@ def classify_dataset(model, dataloader):
     with torch.no_grad():
         for inputs, _ in dataloader:
             inputs = inputs.to(device)
-            # Use mixed precision if on CUDA
-            with torch.cuda.amp.autocast(enabled=(device.type=='cuda')):
+            if device.type == 'cuda':
+                with torch.cuda.amp.autocast(device_type='cuda'):
+                    outputs = model(inputs)
+            else:
                 outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
             all_preds.extend(predicted.cpu().numpy())
@@ -34,17 +37,20 @@ def classify_dataset(model, dataloader):
 # Helper function to compute overall accuracy
 
 def compute_accuracy(pred_labels, true_labels):
-    true_labels = np.array(true_labels, dtype=int)
+    import torch
+    if torch.is_tensor(true_labels):
+        true_labels = true_labels.cpu().numpy().astype(int)
+    else:
+        true_labels = np.array(true_labels, dtype=int)
     return np.sum(pred_labels == true_labels) / len(true_labels)
 
 
 # Added helper function to run training, fine-tuning and evaluation for given label type
 
-def run_evaluation(files, numeric_labels, equalize, minibatch_size, validation_patience, checkpoint_path):
-    # Train NN with mixed precision support if using CUDA
+def run_evaluation(files, numeric_labels, equalize, minibatch_size, validation_patience, checkpoint_path, skip_training=False):
     model, train_loader, val_loader, lbls, lbl_counts, _ = nn_function(
         files, numeric_labels, equalize_labels=equalize, minibatch_size=minibatch_size,
-        validation_patience=validation_patience, checkpoint_path=checkpoint_path, use_amp=(device.type=='cuda')
+        validation_patience=validation_patience, checkpoint_path=checkpoint_path, use_amp=(device.type=='cuda'), skip_training=skip_training
     )
 
     # Fine-tune for classification
@@ -52,10 +58,13 @@ def run_evaluation(files, numeric_labels, equalize, minibatch_size, validation_p
 
     # Get predictions
     preds = classify_dataset(model, val_loader)
-    # Compute overall accuracy
-    acc = compute_accuracy(preds, lbls)
+
+    # Compute overall accuracy using true labels extracted from the validation dataset
+    true_labels = np.array(val_loader.dataset.labels, dtype=int)
+    acc = compute_accuracy(preds, true_labels)
+
     # Compute confusion matrix and metrics
-    conf = confusion_matrix(lbls, preds)
+    conf = confusion_matrix(true_labels, preds)
     p, r, f1, wp, wr, wf1 = f1_metrics(conf, list(lbl_counts.values()))
 
     metrics = {
@@ -64,13 +73,18 @@ def run_evaluation(files, numeric_labels, equalize, minibatch_size, validation_p
         'weighted_recall': wr,
         'weighted_f1': wf1,
         'preds': preds,
-        'labels': lbls,
+        'labels': true_labels,
         'confusion': conf
     }
     return metrics
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--skip_training', action='store_true', help='Skip training and load the last best checkpoint')
+    parser.add_argument('--label_type', type=str, default='both', choices=['both', 'valence', 'context'], help='Which label type to run: both, valence, or context')
+    args = parser.parse_args()
+
     # Read data from Excel, adjust file name and columns as needed
     # Assuming the Excel file is named 'SoundwelDatasetKey.xlsx' and is in the current directory
     excel_file = 'SoundwelDatasetKey.xlsx'
@@ -118,22 +132,20 @@ if __name__ == '__main__':
         os.makedirs(cp_val, exist_ok=True)
         os.makedirs(cp_con, exist_ok=True)
 
-        # Run evaluation for valence
-        val_metrics_dict = run_evaluation(Files, Valence_numeric, True, 32, 5, cp_val)
-        # Run evaluation for context
-        con_metrics_dict = run_evaluation(Files, Context_numeric, False, 32, 5, cp_con)
-
-        print(f"Iteration {i} - Valence Accuracy: {val_metrics_dict['accuracy']:.2f}")
-        print(f"Iteration {i} - Context Accuracy: {con_metrics_dict['accuracy']:.2f}")
-
-        overall_metrics_val[i] = val_metrics_dict
-        overall_metrics_con[i] = con_metrics_dict
-
-        # Site-specific accuracy (Note: This section is a placeholder. In the MATLAB version, filenames are truncated for filtering.
-        # Here, proper filtering logic should be implemented based on your dataset structure. For now, we assign overall accuracy to each site.)
-        for site in site_labels:
-            site_accuracy_val[site][i] = val_metrics_dict['accuracy']
-            site_accuracy_con[site][i] = con_metrics_dict['accuracy']
+        if args.label_type in ['both', 'valence']:
+            # Run evaluation for valence
+            val_metrics_dict = run_evaluation(Files, Valence_numeric, True, 32, 5, cp_val, skip_training=args.skip_training)
+            print(f"Iteration {i} - Valence Accuracy: {val_metrics_dict['accuracy']:.2f}")
+            overall_metrics_val[i] = val_metrics_dict
+            for site in site_labels:
+                site_accuracy_val[site][i] = val_metrics_dict['accuracy']
+        if args.label_type in ['both', 'context']:
+            # Run evaluation for context
+            con_metrics_dict = run_evaluation(Files, Context_numeric, False, 32, 5, cp_con, skip_training=args.skip_training)
+            print(f"Iteration {i} - Context Accuracy: {con_metrics_dict['accuracy']:.2f}")
+            overall_metrics_con[i] = con_metrics_dict
+            for site in site_labels:
+                site_accuracy_con[site][i] = con_metrics_dict['accuracy']
 
     # Save metrics to file or print summary
     print("Overall Valence Metrics:", overall_metrics_val)

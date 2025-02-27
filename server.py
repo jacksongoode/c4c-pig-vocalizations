@@ -25,6 +25,41 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
+# Global variables to hold the loaded models – they will be loaded once
+MODEL_VAL = None
+MODEL_CON = None
+
+# Pre-create the image transform so it's not re-instantiated on every call
+PREPROCESS_TRANSFORM = transforms.Compose(
+    [transforms.Resize((224, 224)), transforms.ToTensor()]
+)
+
+
+def load_models():
+    print("Loading models...")
+    global MODEL_VAL, MODEL_CON
+    # Define checkpoint paths (adjust as needed)
+    CHECKPOINT_PATH_VAL = os.path.join(os.getcwd(), "checkpoints", "Valence", "save", "model_checkpoint_best.pt")
+    CHECKPOINT_PATH_CON = os.path.join(os.getcwd(), "checkpoints", "Context", "save", "model_checkpoint_best.pt")
+
+    if os.path.exists(CHECKPOINT_PATH_VAL):
+        try:
+            MODEL_VAL = load_resnet50_model(2, CHECKPOINT_PATH_VAL)
+            print("Loaded valence model from checkpoint:", CHECKPOINT_PATH_VAL)
+        except Exception as e:
+            print("Error loading valence model:", e)
+    else:
+        print("Valence model checkpoint not found.")
+
+    if os.path.exists(CHECKPOINT_PATH_CON):
+        try:
+            MODEL_CON = load_resnet50_model(18, CHECKPOINT_PATH_CON)
+            print("Loaded context model from checkpoint:", CHECKPOINT_PATH_CON)
+        except Exception as e:
+            print("Error loading context model:", e)
+    else:
+        print("Context model checkpoint not found.")
+
 
 def load_resnet50_model(num_classes, checkpoint_path):
     # Create a ResNet50 model, modify the final fc layer for num_classes
@@ -56,11 +91,9 @@ def preprocess_audio(file_path):
         raise ValueError(f"Audio duration exceeds {max_duration} seconds.")
 
     # Compute spectrogram using STFT
-    window_duration = 0.03
-    # Mimic MATLAB: no matter the window duration, use fixed FFT length 512
     window_length = 512
     nfft = 512
-    noverlap = int(0.99 * window_length)  # 99%% overlap
+    noverlap = int(0.99 * window_length)  # 99% overlap
     hop_length = window_length - noverlap
     S = librosa.stft(
         x_padded,
@@ -71,30 +104,21 @@ def preprocess_audio(file_path):
     )
     S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
 
-    print(
-        "Shape of S_db before adding dimension:", S_db.shape
-    )  # Debug: print shape before adding dimension
-
     # Save color spectrogram image with a longer height
     spectrogram_path = file_path + "_spec.png"
-    plt.figure(figsize=(10, 4))  # Adjust the figure size for a longer height
+    plt.figure(figsize=(10, 4))
     librosa.display.specshow(
         S_db, sr=sr, hop_length=hop_length, x_axis="time", y_axis="log", cmap="viridis"
     )
-    plt.ylim(0, 8000)  # Limit y-axis to 0-8 kHz
-    plt.axis("off")  # Turn off axes
+    plt.ylim(0, 8000)
+    plt.axis("off")
     plt.tight_layout()
     plt.savefig(spectrogram_path, bbox_inches="tight", pad_inches=0)
     plt.close()
 
-    # Load the image and preprocess for PyTorch
+    # Load the image and preprocess for PyTorch using the pre-instantiated transform
     image = Image.open(spectrogram_path).convert("RGB")
-    transform = transforms.Compose(
-        [transforms.Resize((224, 224)), transforms.ToTensor()]
-    )
-    input_tensor = (
-        transform(image).unsqueeze(0).to(device)
-    )  # Add batch dimension and send to device
+    input_tensor = PREPROCESS_TRANSFORM(image).unsqueeze(0).to(device)
 
     return input_tensor, spectrogram_path
 
@@ -128,6 +152,7 @@ def upload():
     file = request.files["audio-file"]
     if file.filename == "":
         return jsonify({"error": "No selected file"}), 400
+
     # Secure the filename and save the file
     filename = secure_filename(file.filename)
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
@@ -135,9 +160,7 @@ def upload():
 
     # Preprocess the file
     preprocessed_input, spectrogram_path = preprocess_audio(file_path)
-    print(
-        "Preprocessed input shape:", preprocessed_input.shape
-    )  # Debug: print input shape
+    print("Preprocessed input shape:", preprocessed_input.shape)
 
     result = {
         "message": "Audio processed successfully",
@@ -145,66 +168,27 @@ def upload():
         "spectrogram": spectrogram_path,
     }
 
-    # Load model checkpoints using the helper function
-    # Here assuming 2 classes for valence and 18 for context; adjust num_classes as needed
-    CHECKPOINT_PATH_VAL = os.path.join(
-        os.getcwd(), "checkpoints", "Valence", "Iter1", "model_checkpoint_best.pt"
-    )
-    CHECKPOINT_PATH_CON = os.path.join(
-        os.getcwd(), "checkpoints", "Context", "Iter1", "model_checkpoint_best.pt"
-    )
-
-    model_val = None
-    model_con = None
-
-    if os.path.exists(CHECKPOINT_PATH_VAL):
-        try:
-            model_val = load_resnet50_model(
-                2, CHECKPOINT_PATH_VAL
-            )  # Change 2 to appropriate number of classes
-            print("Loaded valence model from checkpoint:", CHECKPOINT_PATH_VAL)
-        except Exception as e:
-            print("Error loading valence model:", e)
-
-    if os.path.exists(CHECKPOINT_PATH_CON):
-        try:
-            model_con = load_resnet50_model(
-                18, CHECKPOINT_PATH_CON
-            )  # Change 18 to appropriate number of classes
-            print("Loaded context model from checkpoint:", CHECKPOINT_PATH_CON)
-        except Exception as e:
-            print("Error loading context model:", e)
-
-    # Run prediction if valence model is loaded
-    if model_val is not None:
+    # Use the pre-loaded models rather than loading on every request
+    if MODEL_VAL is not None:
         with torch.no_grad():
-            val_prediction = model_val(preprocessed_input)
-            print(
-                "Raw valence prediction values:", val_prediction.cpu().numpy()
-            )  # Debug: print raw output
+            val_prediction = MODEL_VAL(preprocessed_input)
+            print("Raw valence prediction values:", val_prediction.cpu().numpy())
             predicted_val_class = int(torch.argmax(val_prediction, dim=1)[0])
             result["valence_prediction"] = predicted_val_class
     else:
         result["valence_prediction"] = "N/A"
 
-    # Run prediction if context model is loaded
-    if model_con is not None:
+    if MODEL_CON is not None:
         with torch.no_grad():
-            con_prediction = model_con(preprocessed_input)
-            print(
-                "Raw context prediction values:", con_prediction.cpu().numpy()
-            )  # Debug: print raw output
+            con_prediction = MODEL_CON(preprocessed_input)
+            print("Raw context prediction values:", con_prediction.cpu().numpy())
             predicted_con_class = int(torch.argmax(con_prediction, dim=1)[0])
-            # Convert numeric prediction to proper context label using mapping
             context_mapping = get_context_mapping()
             result["context_prediction"] = context_mapping.get(
                 predicted_con_class, "Unknown"
             )
     else:
         result["context_prediction"] = "N/A"
-
-    # Optionally, delete the file after processing
-    # os.remove(file_path)
 
     return jsonify(result)
 
@@ -216,4 +200,5 @@ def uploaded_file(filename):
 
 
 if __name__ == "__main__":
+    load_models()
     app.run()

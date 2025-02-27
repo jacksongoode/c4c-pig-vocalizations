@@ -117,6 +117,7 @@ def nn_function(
     validation_patience,
     checkpoint_path,
     use_amp=False,
+    skip_training=False,
 ):
     """
     Equivalent to MATLAB NN_function.m using PyTorch
@@ -128,6 +129,7 @@ def nn_function(
         validation_patience (int): Patience for early stopping.
         checkpoint_path (str): Directory to save model checkpoints.
         use_amp (bool): Whether to use mixed precision training.
+        skip_training (bool): Whether to skip training and load checkpoint if available.
 
     Returns:
         model: The trained PyTorch model.
@@ -190,6 +192,17 @@ def nn_function(
 
     # Initialize GradScaler for mixed precision
     scaler = torch.amp.GradScaler(enabled=use_amp)
+
+    # If skip_training flag is True, load the checkpoint and skip training
+    if skip_training:
+        checkpoint_file = os.path.join(checkpoint_path, "model_checkpoint_best.pt")
+        if os.path.exists(checkpoint_file):
+            model.load_state_dict(torch.load(checkpoint_file))
+            print(f"Loaded model checkpoint from {checkpoint_file}, skipping training.")
+            lbl_counts = dict(Counter(val_labels))
+            return model, train_loader, val_loader, val_labels, lbl_counts, None
+        else:
+            print(f"Checkpoint not found at {checkpoint_file}. Training will proceed.")
 
     # Training loop
     n_epochs = MAX_EPOCHS
