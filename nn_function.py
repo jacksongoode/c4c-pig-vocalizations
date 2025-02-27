@@ -1,17 +1,26 @@
 import os
+from collections import Counter
+
+import numpy as np
+
 # Use PyTorch with MPS (Metal Performance Shaders) for Apple Silicon
 import torch
-import numpy as np
-from torch import nn
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, models
-from collections import Counter
-from sklearn.model_selection import train_test_split
 from PIL import Image
+from sklearn.model_selection import train_test_split
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
+from torchvision import models, transforms
 
 # Check if MPS is available
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"Using device: {device}")
+
+# Training hyperparameters (matching MATLAB NN_function.m)
+MAX_EPOCHS = 20
+INITIAL_LEARNING_RATE = 0.001
+MOMENTUM = 0.9
+LEARN_RATE_DROP_PERIOD = 5
+LEARN_RATE_DROP_FACTOR = 10 ** (-0.5)
 
 # Set a default image size for ResNet50
 IMAGE_SIZE = (224, 224)
@@ -19,21 +28,20 @@ IMAGE_SIZE = (224, 224)
 
 class ImageDataset(Dataset):
     """PyTorch Dataset for loading images from file paths."""
+
     def __init__(self, file_paths, labels=None):
         self.file_paths = file_paths
         self.labels = labels
-        self.transform = transforms.Compose([
-            transforms.Resize(IMAGE_SIZE),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        self.transform = transforms.Compose(
+            [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
+        )
 
     def __len__(self):
         return len(self.file_paths)
 
     def __getitem__(self, idx):
         img_path = self.file_paths[idx]
-        image = Image.open(img_path).convert('RGB')
+        image = Image.open(img_path).convert("RGB")
         image = self.transform(image)
 
         if self.labels is not None:
@@ -64,7 +72,8 @@ def balance_dataset(file_paths, labels):
 
 class EarlyStopping:
     """Early stopping to stop training when validation loss doesn't improve."""
-    def __init__(self, patience=7, verbose=False, delta=0, path='checkpoint.pt'):
+
+    def __init__(self, patience=7, verbose=False, delta=0, path="checkpoint.pt"):
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
@@ -83,7 +92,7 @@ class EarlyStopping:
         elif score < self.best_score + self.delta:
             self.counter += 1
             if self.verbose:
-                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+                print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
@@ -93,12 +102,22 @@ class EarlyStopping:
 
     def save_checkpoint(self, val_loss, model):
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model...')
+            print(
+                f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model..."
+            )
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
 
-def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_patience, checkpoint_path, use_amp=False):
+def nn_function(
+    file_paths,
+    labels,
+    equalize_labels,
+    minibatch_size,
+    validation_patience,
+    checkpoint_path,
+    use_amp=False,
+):
     """
     Equivalent to MATLAB NN_function.m using PyTorch
     Parameters:
@@ -153,7 +172,10 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
 
     # Set up loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters(), lr=INITIAL_LEARNING_RATE, momentum=MOMENTUM)
+
+    # Set up learning rate scheduler
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=LEARN_RATE_DROP_PERIOD, gamma=LEARN_RATE_DROP_FACTOR)
 
     # Prepare checkpoint directory
     if not os.path.exists(checkpoint_path):
@@ -163,93 +185,126 @@ def nn_function(file_paths, labels, equalize_labels, minibatch_size, validation_
     early_stopping = EarlyStopping(
         patience=validation_patience,
         verbose=True,
-        path=os.path.join(checkpoint_path, 'model_checkpoint_best.pt')
+        path=os.path.join(checkpoint_path, "model_checkpoint_best.pt"),
     )
 
     # Initialize GradScaler for mixed precision
     scaler = torch.amp.GradScaler(enabled=use_amp)
 
     # Training loop
-    n_epochs = 20
+    n_epochs = MAX_EPOCHS
+    # Determine validation frequency: floor(number of training iterations per epoch)
+    val_frequency = max(1, len(train_dataset) // minibatch_size)
+    global_iteration = 0
     for epoch in range(n_epochs):
-        # Training phase
         model.train()
         running_loss = 0.0
         correct = 0
         total = 0
+        iteration = 0
 
         for inputs, target_labels in train_loader:
+            iteration += 1
+            global_iteration += 1
             inputs, target_labels = inputs.to(device), target_labels.to(device)
-
-            # Zero the parameter gradients
             optimizer.zero_grad()
 
             # Use mixed precision if enabled
-            with torch.amp.autocast(device_type='cuda', enabled=use_amp):
+            with torch.amp.autocast(device_type="cuda", enabled=use_amp):
                 outputs = model(inputs)
                 loss = criterion(outputs, target_labels)
 
-            # Scale the loss and backpropagate
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-            # Statistics
             running_loss += loss.item() * inputs.size(0)
             _, predicted = torch.max(outputs.data, 1)
             total += target_labels.size(0)
             correct += (predicted == target_labels).sum().item()
 
+            # Mid-epoch validation
+            if iteration % val_frequency == 0:
+                model.eval()
+                val_loss = 0.0
+                val_correct = 0
+                val_total = 0
+                with torch.no_grad():
+                    for val_inputs, val_labels in val_loader:
+                        val_inputs, val_labels = val_inputs.to(device), val_labels.to(device)
+                        val_outputs = model(val_inputs)
+                        v_loss = criterion(val_outputs, val_labels)
+                        val_loss += v_loss.item() * val_inputs.size(0)
+                        _, val_predicted = torch.max(val_outputs.data, 1)
+                        val_total += val_labels.size(0)
+                        val_correct += (val_predicted == val_labels).sum().item()
+                current_val_loss = val_loss / val_total
+                print(f"[Epoch {epoch+1}, Iteration {iteration}] Validation Loss: {current_val_loss:.4f}")
+                early_stopping(current_val_loss, model)
+                if early_stopping.early_stop:
+                    print("Early stopping triggered during epoch validation")
+                    break
+                model.train()  # switch back to training mode
+        else:
+            # Only executed if the inner loop did NOT break due to early stopping
+            pass
+
+        # Compute epoch statistics
         epoch_loss = running_loss / total
         epoch_acc = correct / total
 
-        # Validation phase
-        model.eval()
-        val_loss = 0.0
-        val_correct = 0
-        val_total = 0
-
-        with torch.no_grad():
-            for inputs, target_labels in val_loader:
-                inputs, target_labels = inputs.to(device), target_labels.to(device)
-
-                outputs = model(inputs)
-                loss = criterion(outputs, target_labels)
-
-                val_loss += loss.item() * inputs.size(0)
-                _, predicted = torch.max(outputs.data, 1)
-                val_total += target_labels.size(0)
-                val_correct += (predicted == target_labels).sum().item()
-
-        val_epoch_loss = val_loss / val_total
-        val_epoch_acc = val_correct / val_total
-
-        print(f'Epoch {epoch+1}/{n_epochs}, '
-              f'Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_acc:.4f}, '
-              f'Val Loss: {val_epoch_loss:.4f}, Val Acc: {val_epoch_acc:.4f}')
+        print(
+            f"Epoch {epoch+1}/{n_epochs}, "
+            f"Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_acc:.4f}"
+        )
 
         # Save checkpoint for this epoch
-        torch.save(model.state_dict(), os.path.join(checkpoint_path, f'model_checkpoint_{epoch+1:02d}.pt'))
+        torch.save(
+            model.state_dict(),
+            os.path.join(checkpoint_path, f"model_checkpoint_{epoch+1:02d}.pt"),
+        )
 
-        # Early stopping
-        early_stopping(val_epoch_loss, model)
+        # Step the learning rate scheduler
+        scheduler.step()
+        print(f"Learning rate after epoch {epoch+1}: {scheduler.get_last_lr()[0]:.6f}")
+
+        # If early stopping was triggered, break out of epoch loop
         if early_stopping.early_stop:
-            print("Early stopping triggered")
             break
 
     # Load the best model
-    model.load_state_dict(torch.load(os.path.join(checkpoint_path, 'model_checkpoint_best.pt')))
+    model.load_state_dict(
+        torch.load(os.path.join(checkpoint_path, "model_checkpoint_best.pt"))
+    )
 
-    return model, train_loader, val_loader, val_labels, dict(Counter(val_labels)), val_loader
+    return (
+        model,
+        train_loader,
+        val_loader,
+        val_labels,
+        dict(Counter(val_labels)),
+        val_loader,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     # These paths and labels should be replaced with actual data
-    file_paths = [os.path.join('data', f) for f in os.listdir('data') if f.endswith('.jpg') or f.endswith('.png')]
-    labels = [0 if 'class0' in f else 1 for f in file_paths]  # dummy labeling logic
+    file_paths = [
+        os.path.join("data", f)
+        for f in os.listdir("data")
+        if f.endswith(".jpg") or f.endswith(".png")
+    ]
+    labels = [0 if "class0" in f else 1 for f in file_paths]  # dummy labeling logic
 
-    model, train_loader, val_loader, val_labels, val_label_counts, aug_loader = nn_function(
-        file_paths, labels, equalize_labels=True, minibatch_size=32, validation_patience=5, checkpoint_path='checkpoints'
+    model, train_loader, val_loader, val_labels, val_label_counts, aug_loader = (
+        nn_function(
+            file_paths,
+            labels,
+            equalize_labels=True,
+            minibatch_size=32,
+            validation_patience=5,
+            checkpoint_path="checkpoints",
+        )
     )
-    print('Training complete.')
+    print("Training complete.")

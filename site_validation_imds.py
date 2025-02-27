@@ -1,8 +1,9 @@
 import os
+
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 
 # Check if MPS is available
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -14,15 +15,14 @@ IMAGE_SIZE = (224, 224)
 
 class SiteValidationDataset(Dataset):
     """Dataset for site validation images."""
+
     def __init__(self, files, labels, base_dir="soundwel"):
         self.files = files
         self.labels = labels
         self.base_dir = base_dir
-        self.transform = transforms.Compose([
-            transforms.Resize(IMAGE_SIZE),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        self.transform = transforms.Compose(
+            [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
+        )
 
     def __len__(self):
         return len(self.files)
@@ -32,11 +32,11 @@ class SiteValidationDataset(Dataset):
         label = self.labels[idx]
 
         # Check if file exists and is an image
-        is_image = img_path.lower().endswith(('.png', '.jpg', '.jpeg'))
+        is_image = img_path.lower().endswith((".png", ".jpg", ".jpeg"))
 
         if os.path.exists(img_path) and is_image:
             try:
-                image = Image.open(img_path).convert('RGB')
+                image = Image.open(img_path).convert("RGB")
                 image = self.transform(image)
             except Exception:
                 # Return a blank image if there's an error
@@ -69,7 +69,7 @@ def site_validation_imds(files, labels, base_dir="soundwel"):
     return dataloader
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     files = ["example1.jpg", "example2.jpg"]
     labels = [0, 1]

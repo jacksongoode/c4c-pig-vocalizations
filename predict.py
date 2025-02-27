@@ -1,10 +1,11 @@
 import os
-import torch
-import numpy as np
 from glob import glob
-from torchvision import transforms
+
+import numpy as np
+import torch
 from PIL import Image
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 
 # Check if MPS is available
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -12,6 +13,7 @@ print(f"Using device: {device}")
 
 # Set a default image size for ResNet50
 IMAGE_SIZE = (224, 224)
+
 
 # Helper function to classify a dataset using the PyTorch model
 def classify_dataset(model, dataloader):
@@ -35,18 +37,16 @@ def classify_dataset(model, dataloader):
 class PredictionDataset(Dataset):
     def __init__(self, file_paths):
         self.file_paths = file_paths
-        self.transform = transforms.Compose([
-            transforms.Resize(IMAGE_SIZE),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        self.transform = transforms.Compose(
+            [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
+        )
 
     def __len__(self):
         return len(self.file_paths)
 
     def __getitem__(self, idx):
         img_path = self.file_paths[idx]
-        image = Image.open(img_path).convert('RGB')
+        image = Image.open(img_path).convert("RGB")
         image = self.transform(image)
         return image
 
@@ -58,16 +58,20 @@ def create_dataset(file_paths, batch_size=1):
     return dataloader
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Load the model from the checkpoint
-    model_val = torch.load('checkpoints/Valence/Iter1/model_checkpoint_best.pt', map_location=device)
-    model_con = torch.load('checkpoints/Context/Iter1/model_checkpoint_best.pt', map_location=device)
+    model_val = torch.load(
+        "checkpoints/Valence/Iter1/model_checkpoint_best.pt", map_location=device
+    )
+    model_con = torch.load(
+        "checkpoints/Context/Iter1/model_checkpoint_best.pt", map_location=device
+    )
 
     # Set models to evaluation mode
     model_val.eval()
     model_con.eval()
 
-    files = glob('test_soundwel/*.png')
+    files = glob("test_soundwel/*.png")
 
     # Create the dataset
     dataloader = create_dataset(files)
