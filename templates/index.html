@@ -1,119 +1,221 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Animal Sound Classifier</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50 text-gray-700 flex items-center justify-center min-h-screen">
-  <div class="max-w-md w-full px-4">
-    <h1 class="text-xl font-medium text-center mb-6">Animal Sound Classifier</h1>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pig Vocalization Classifier</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body
+    class="bg-gray-50 text-gray-700 flex items-center justify-center min-h-screen"
+  >
+    <div class="max-w-md w-full px-4">
+      <h1 class="text-xl font-medium text-center mb-5">
+        Animal Sound Classifier
+      </h1>
 
-    <div class="bg-white p-5 rounded shadow-sm mb-5">
-      <form id="upload-form">
-        <div class="mb-4">
-          <label for="audio-file" class="block text-sm font-medium mb-2">Upload Audio File</label>
-          <input type="file" id="audio-file" name="audio-file" accept=".wav" required
-            class="w-full text-sm border border-gray-300 p-2 rounded">
-        </div>
-        <button type="submit" id="analyze-btn" class="w-full bg-blue-500 text-white py-2 px-3 rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300">
-          Analyze
+      <div class="bg-white rounded shadow-sm mb-5 overflow-hidden">
+        <button
+          id="info-toggle"
+          class="w-full py-3 px-5 text-left text-sm font-medium flex items-center justify-between bg-white border-b border-gray-100"
+        >
+          <span>About this project</span>
+          <svg
+            id="chevron-down"
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4 transition-transform"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
         </button>
-      </form>
-    </div>
+        <div id="info-content" class="p-5 text-sm hidden">
+          <div class="space-y-3">
+            <div class="pb-3 border-b border-gray-100">
+              <strong class="font-semibold text-gray-800">Dataset:</strong> This
+              tool analyzes pig vocalizations from the SoundWel project, which
+              aims to understand the encoding of emotion in pig calls to develop
+              a welfare assessment tool.
+              <a
+                href="https://www.soundwel-project.eu/"
+                target="_blank"
+                class="text-blue-500 hover:underline"
+                >Learn more</a
+              >
+            </div>
+            <div>
+              <strong class="font-semibold text-gray-800">Evaluation:</strong>
+              The classifier was trained on spectrograms of pig calls to
+              identify emotional valence and context of production from birth to
+              slaughter, using the EfficientNet B0 base.
+              <a
+                href="https://github.com/CiaraCR/PigCallClassifier"
+                target="_blank"
+                class="text-blue-500 hover:underline"
+                >View code</a
+              >
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <div id="result-container" class="hidden">
-      <div class="bg-white p-5 rounded shadow-sm">
-        <h2 class="text-base font-medium mb-4 border-b pb-2">Sound Analysis Results</h2>
-        <div id="prediction" class="text-base text-center font-medium mb-4"></div>
-        <div>
-          <div class="flex justify-center mt-3">
-            <img id="spectrogram" src="" alt="Audio Spectrogram" class="max-w-full rounded">
+      <div class="bg-white p-5 rounded shadow-sm mb-5">
+        <form id="upload-form">
+          <div class="mb-4">
+            <label for="audio-file" class="block text-sm font-medium mb-2"
+              >Upload Audio File</label
+            >
+            <input
+              type="file"
+              id="audio-file"
+              name="audio-file"
+              accept=".wav"
+              required
+              class="w-full text-sm border border-gray-300 p-2 rounded"
+            />
+          </div>
+          <button
+            type="submit"
+            id="analyze-btn"
+            class="w-full bg-blue-500 text-white py-2 px-3 rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            Analyze
+          </button>
+        </form>
+      </div>
+
+      <div id="result-container" class="hidden">
+        <div class="bg-white p-5 rounded shadow-sm">
+          <h2 class="text-base font-medium mb-4 border-b pb-2">
+            Sound Analysis Results
+          </h2>
+          <div
+            id="prediction"
+            class="text-base text-center font-medium mb-4"
+          ></div>
+          <div>
+            <div class="flex justify-center mt-3">
+              <img
+                id="spectrogram"
+                src=""
+                alt="Audio Spectrogram"
+                class="max-w-full rounded"
+              />
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <script>
-    document.getElementById('upload-form').addEventListener('submit', async function(e) {
-      e.preventDefault();
+    <script>
+      document
+        .getElementById("upload-form")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
 
-      const fileInput = document.getElementById('audio-file');
-      const file = fileInput.files[0];
-      const analyzeBtn = document.getElementById('analyze-btn');
+          const fileInput = document.getElementById("audio-file");
+          const file = fileInput.files[0];
+          const analyzeBtn = document.getElementById("analyze-btn");
 
-      if (!file) {
-        alert('Please select a file.');
-        return;
-      }
+          if (!file) {
+            alert("Please select a file.");
+            return;
+          }
 
-      // Disable button and show analyzing state
-      document.getElementById('result-container').classList.add('hidden');
-      analyzeBtn.disabled = true;
-      analyzeBtn.textContent = 'Analyzing...';
-      analyzeBtn.classList.add('bg-blue-400');
-      analyzeBtn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+          // Disable button and show analyzing state
+          document.getElementById("result-container").classList.add("hidden");
+          analyzeBtn.disabled = true;
+          analyzeBtn.textContent = "Analyzing...";
+          analyzeBtn.classList.add("bg-blue-400");
+          analyzeBtn.classList.remove("bg-blue-500", "hover:bg-blue-600");
 
-      const formData = new FormData();
-      formData.append('audio-file', file);
+          const formData = new FormData();
+          formData.append("audio-file", file);
 
-      try {
-        const response = await fetch('/upload', {
-          method: 'POST',
-          body: formData
-        });
+          try {
+            const response = await fetch("/upload", {
+              method: "POST",
+              body: formData,
+            });
 
-        const result = await response.json();
+            const result = await response.json();
 
-        // Show results
-        document.getElementById('result-container').classList.remove('hidden');
+            // Show results
+            document
+              .getElementById("result-container")
+              .classList.remove("hidden");
 
-        // Re-enable button
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = 'Analyze';
-        analyzeBtn.classList.remove('bg-blue-400');
-        analyzeBtn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+            // Re-enable button
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = "Analyze";
+            analyzeBtn.classList.remove("bg-blue-400");
+            analyzeBtn.classList.add("bg-blue-500", "hover:bg-blue-600");
 
-        // Display prediction with interpretation
-        const predictionEl = document.getElementById('prediction');
+            // Display prediction with interpretation
+            const predictionEl = document.getElementById("prediction");
 
-        if (result.valence_prediction === 'N/A' || result.context_prediction === 'N/A') {
-          predictionEl.textContent = 'Model not loaded';
-        } else {
-          // Interpret the valence prediction (0 = Negative, 1 = Positive)
-          const valenceClass = result.valence_prediction === 0 ? 'text-red-500' : 'text-green-500';
-          const valenceText = result.valence_prediction === 0 ? 'Negative Emotional State' : 'Positive Emotional State';
+            if (
+              result.valence_prediction === "N/A" ||
+              result.context_prediction === "N/A"
+            ) {
+              predictionEl.textContent = "Model not loaded";
+            } else {
+              // Interpret the valence prediction (0 = Negative, 1 = Positive)
+              const valenceClass =
+                result.valence_prediction === 0
+                  ? "text-red-500"
+                  : "text-green-500";
+              const valenceText =
+                result.valence_prediction === 0
+                  ? "Negative Emotional State"
+                  : "Positive Emotional State";
 
-          // Use the context prediction string directly for display
-          const contextText = result.context_prediction;
-          const contextClass = 'text-blue-500'; // You can update this to use a mapping if desired
+              // Use the context prediction string directly for display
+              const contextText = result.context_prediction;
+              const contextClass = "text-blue-500"; // You can update this to use a mapping if desired
 
-          predictionEl.innerHTML = `
+              predictionEl.innerHTML = `
             <div class="${valenceClass} font-medium">Valence: ${valenceText}</div>
-            <div class="text-xs text-gray-500 mt-1">(Valence Prediction: ${result.valence_prediction})</div>
             <div class="${contextClass} font-medium mt-2">Context: ${contextText}</div>
-            <div class="text-xs text-gray-500 mt-1">(Context Prediction: ${result.context_prediction})</div>
           `;
-        }
+            }
 
-        // Display spectrogram
-        if (result.spectrogram) {
-          document.getElementById('spectrogram').src = `/uploads/${result.spectrogram.split('/').pop()}`;
-        }
+            // Display spectrogram
+            if (result.spectrogram) {
+              document.getElementById("spectrogram").src =
+                `/uploads/${result.spectrogram.split("/").pop()}`;
+            }
+          } catch (error) {
+            console.error("Error:", error);
+            alert("An error occurred. Please try again.");
 
-      } catch (error) {
-        console.error('Error:', error);
-        alert('An error occurred. Please try again.');
+            // Re-enable button
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = "Analyze";
+            analyzeBtn.classList.remove("bg-blue-400");
+            analyzeBtn.classList.add("bg-blue-500", "hover:bg-blue-600");
+          }
+        });
+    </script>
 
-        // Re-enable button
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = 'Analyze';
-        analyzeBtn.classList.remove('bg-blue-400');
-        analyzeBtn.classList.add('bg-blue-500', 'hover:bg-blue-600');
-      }
-    });
-  </script>
-</body>
+    <script>
+      // Info toggle functionality
+      document
+        .getElementById("info-toggle")
+        .addEventListener("click", function () {
+          const infoContent = document.getElementById("info-content");
+          const chevron = document.getElementById("chevron-down");
+
+          infoContent.classList.toggle("hidden");
+          chevron.classList.toggle("rotate-180");
+        });
+    </script>
+  </body>
 </html>
