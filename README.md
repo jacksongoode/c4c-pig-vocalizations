@@ -20,13 +20,6 @@ https://zenodo.org/records/8252482
 
 https://colab.research.google.com/drive/18eilXcCSPmDvscnGmIGspQEONW903dBK?usp=sharing
 
-## Features
-
-- ResNet50-based neural network classifiers for both valence and context
-- Support for Apple Silicon GPUs via Metal Performance Shaders (MPS)
-- Web interface for uploading and analyzing audio files
-- Support for spectrogram generation from audio files
-
 ## Requirements
 
 - Python 3.12 or higher
