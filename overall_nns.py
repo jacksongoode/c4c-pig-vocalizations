@@ -8,10 +8,11 @@ from metrics import f1_metrics
 from nn_function import nn_function
 from nn_prep_for_classify import nn_prep_for_classify
 import argparse
+from tqdm import tqdm
+from utils import get_device
 
-# Check if CUDA is available, else check for MPS (Apple Silicon), else CPU
-device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-print(f"Using device: {device}")
+# Use the utility function to get the device
+device = get_device()
 
 # Helper function to classify a dataset using the PyTorch model
 
@@ -20,14 +21,28 @@ def classify_dataset(model, dataloader):
     model.eval()  # Set the model to evaluation mode
     all_preds = []
 
+    # Add progress bar for prediction - use position to prevent overlapping
+    progress_bar = tqdm(dataloader, desc="Predicting", leave=False, position=1)
+
     with torch.no_grad():
-        for inputs, _ in dataloader:
+        for inputs, _ in progress_bar:
             inputs = inputs.to(device)
-            if device.type == 'cuda':
-                with torch.cuda.amp.autocast(device_type='cuda'):
+
+            # Handle different PyTorch versions for autocast
+            try:
+                # Try with device_type parameter (newer PyTorch versions)
+                with torch.amp.autocast(device_type=device.type, enabled=(device.type != 'cpu')):
                     outputs = model(inputs)
-            else:
-                outputs = model(inputs)
+            except TypeError:
+                # Fall back to older PyTorch versions or CPU
+                if device.type == 'cuda':
+                    # For older PyTorch with CUDA
+                    with torch.cuda.amp.autocast():
+                        outputs = model(inputs)
+                else:
+                    # For CPU
+                    outputs = model(inputs)
+
             _, predicted = torch.max(outputs, 1)
             all_preds.extend(predicted.cpu().numpy())
 
@@ -122,36 +137,69 @@ if __name__ == '__main__':
     site_accuracy_val = defaultdict(dict)
     site_accuracy_con = defaultdict(dict)  # Added for context
 
-    # Loop over 12 iterations (mimicking MATLAB for i = 1:12)
-    for i in range(1, 13):
-        print(f"Beginning Loop: {i}")
+    # Create a progress bar for iterations - use position to prevent overlapping
+    iteration_number = 1
+    iterations = range(1, iteration_number + 1)
 
+    if args.label_type == 'both':
+        desc = "Training Valence & Context Models"
+    elif args.label_type == 'valence':
+        desc = "Training Valence Models"
+    else:
+        desc = "Training Context Models"
+
+    iteration_progress = tqdm(iterations, desc=desc, position=0)
+
+    # Loop over 12 iterations (mimicking MATLAB for i = 1:12)
+    for i in iteration_progress:
         # Define checkpoint directory for this iteration
         cp_val = os.path.join(checkpoint_base_val, f'Iter{i}')
         cp_con = os.path.join(checkpoint_base_con, f'Iter{i}')
         os.makedirs(cp_val, exist_ok=True)
         os.makedirs(cp_con, exist_ok=True)
 
+        val_metrics_dict = None
+        con_metrics_dict = None
+
         if args.label_type in ['both', 'valence']:
             # Run evaluation for valence
+            iteration_progress.set_postfix({"model": "valence"})
             val_metrics_dict = run_evaluation(Files, Valence_numeric, True, 32, 5, cp_val, skip_training=args.skip_training)
-            print(f"Iteration {i} - Valence Accuracy: {val_metrics_dict['accuracy']:.2f}")
+            iteration_progress.write(f"Iteration {i} - Valence Accuracy: {val_metrics_dict['accuracy']:.2f}")
             overall_metrics_val[i] = val_metrics_dict
             for site in site_labels:
                 site_accuracy_val[site][i] = val_metrics_dict['accuracy']
+
         if args.label_type in ['both', 'context']:
             # Run evaluation for context
+            iteration_progress.set_postfix({"model": "context"})
             con_metrics_dict = run_evaluation(Files, Context_numeric, False, 32, 5, cp_con, skip_training=args.skip_training)
-            print(f"Iteration {i} - Context Accuracy: {con_metrics_dict['accuracy']:.2f}")
+            iteration_progress.write(f"Iteration {i} - Context Accuracy: {con_metrics_dict['accuracy']:.2f}")
             overall_metrics_con[i] = con_metrics_dict
             for site in site_labels:
                 site_accuracy_con[site][i] = con_metrics_dict['accuracy']
 
+        # Update progress bar with current metrics
+        if args.label_type == 'both':
+            iteration_progress.set_postfix({
+                "valence_acc": f"{val_metrics_dict['accuracy']:.2f}",
+                "context_acc": f"{con_metrics_dict['accuracy']:.2f}"
+            })
+        elif args.label_type == 'valence' and val_metrics_dict:
+            iteration_progress.set_postfix({"accuracy": f"{val_metrics_dict['accuracy']:.2f}"})
+        elif args.label_type == 'context' and con_metrics_dict:
+            iteration_progress.set_postfix({"accuracy": f"{con_metrics_dict['accuracy']:.2f}"})
+
     # Save metrics to file or print summary
-    print("Overall Valence Metrics:", overall_metrics_val)
-    print("Overall Context Metrics:", overall_metrics_con)
-    print("Site-wise Valence Accuracies:", dict(site_accuracy_val))
-    print("Site-wise Context Accuracies:", dict(site_accuracy_con))
+    print("\nTraining Complete! Summary of Results:")
+
+    if args.label_type in ['both', 'valence']:
+        val_accs = [metrics['accuracy'] for metrics in overall_metrics_val.values()]
+        iteration_progress.write(f"Valence Model - Avg Accuracy: {np.mean(val_accs):.4f}, Best: {np.max(val_accs):.4f}")
+
+    if args.label_type in ['both', 'context']:
+        con_accs = [metrics['accuracy'] for metrics in overall_metrics_con.values()]
+        iteration_progress.write(f"Context Model - Avg Accuracy: {np.mean(con_accs):.4f}, Best: {np.max(con_accs):.4f}")
 
     # New block to run site_validation_imds from the nn_function overall
     try:
@@ -163,10 +211,10 @@ if __name__ == '__main__':
         # Create dummy labels (e.g., all zeros)
         dummy_labels = [0] * len(image_files)
 
-        print('Running site_validation_imds on image files:', image_files)
+        iteration_progress.write('Running site_validation_imds on image files...')
         dataset_site = site_validation_imds(image_files, dummy_labels, base_dir=image_dir)
         # Get the first batch to check
         images, labels = next(iter(dataset_site))
-        print('Site validation batch images shape:', images.shape, 'labels:', labels)
+        iteration_progress.write(f'Site validation batch images shape: {images.shape}, labels: {labels}')
     except Exception as e:
-        print('Error during site validation:', e)
+        iteration_progress.write(f'Error during site validation: {e}')

@@ -1,22 +1,41 @@
 import os
+from typing import List, Tuple
 
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-# Check if MPS is available
-device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-print(f"Using device: {device}")
+from utils import get_device
+
+# Use the utility function to get the device
+device = get_device()
 
 # Set target image dimensions
 IMAGE_SIZE = (224, 224)
 
 
 class SiteValidationDataset(Dataset):
-    """Dataset for site validation images."""
+    """Dataset for site validation images.
 
-    def __init__(self, files, labels, base_dir="soundwel"):
+    This dataset loads images from disk and applies transformations for model input.
+    It handles missing or corrupt images gracefully by returning blank tensors.
+
+    Attributes:
+        files: List of file paths relative to base_dir.
+        labels: List of integer labels corresponding to each file.
+        base_dir: Base directory containing the image files.
+        transform: Composition of image transformations to apply.
+    """
+
+    def __init__(self, files: List[str], labels: List[int], base_dir: str = "soundwel"):
+        """Initialize the dataset.
+
+        Args:
+            files: List of file paths relative to base_dir.
+            labels: List of integer labels corresponding to each file.
+            base_dir: Base directory containing the image files.
+        """
         self.files = files
         self.labels = labels
         self.base_dir = base_dir
@@ -24,10 +43,19 @@ class SiteValidationDataset(Dataset):
             [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
         return len(self.files)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
+        """Get a sample from the dataset.
+
+        Args:
+            idx: Index of the sample to retrieve.
+
+        Returns:
+            tuple: (image, label) where image is a tensor and label is an integer.
+        """
         img_path = os.path.join(self.base_dir, self.files[idx])
         label = self.labels[idx]
 
@@ -38,7 +66,8 @@ class SiteValidationDataset(Dataset):
             try:
                 image = Image.open(img_path).convert("RGB")
                 image = self.transform(image)
-            except Exception:
+            except Exception as e:
+                print(f"Error loading image {img_path}: {e}")
                 # Return a blank image if there's an error
                 image = torch.zeros((3, IMAGE_SIZE[0], IMAGE_SIZE[1]))
         else:
@@ -48,14 +77,16 @@ class SiteValidationDataset(Dataset):
         return image, label
 
 
-def site_validation_imds(files, labels, base_dir="soundwel"):
+def site_validation_imds(
+    files: List[str], labels: List[int], base_dir: str = "soundwel"
+) -> DataLoader:
     """
     Creates a DataLoader for site validation images.
 
-    Parameters:
-        files (list): List of file paths (strings). These are appended to the base_dir.
-        labels (list): List of labels corresponding to each file.
-        base_dir (str): Base directory path where the images are located.
+    Args:
+        files: List of file paths (strings). These are appended to the base_dir.
+        labels: List of labels corresponding to each file.
+        base_dir: Base directory path where the images are located.
 
     Returns:
         DataLoader: A DataLoader that yields batches of (image, label) pairs.
@@ -63,8 +94,14 @@ def site_validation_imds(files, labels, base_dir="soundwel"):
     # Create dataset
     dataset = SiteValidationDataset(files, labels, base_dir)
 
-    # Create dataloader
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=False)
+    # Create dataloader with optimized settings
+    dataloader = DataLoader(
+        dataset,
+        batch_size=32,
+        shuffle=False,
+        num_workers=2,  # Use multiple workers for parallel loading
+        pin_memory=True,  # Speed up host to device transfers
+    )
 
     return dataloader
 
@@ -76,5 +113,5 @@ if __name__ == "__main__":
     dataloader = site_validation_imds(files, labels)
     # Get the first batch to check
     for images, labs in dataloader:
-        print(images.shape, labs)
+        print(f"Batch shape: {images.shape}, Labels: {labs}")
         break
