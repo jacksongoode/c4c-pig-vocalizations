@@ -16,6 +16,10 @@ https://zenodo.org/records/8252482
 
 ![image](https://github.com/user-attachments/assets/c3684deb-5c41-4c67-99cf-a23ced50070b)
 
+## Colab
+
+https://colab.research.google.com/drive/18eilXcCSPmDvscnGmIGspQEONW903dBK?usp=sharing
+
 ## Features
 
 - ResNet50-based neural network classifiers for both valence and context
