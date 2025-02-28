@@ -22,6 +22,7 @@ MOMENTUM = 0.9
 LEARN_RATE_DROP_PERIOD = 5
 LEARN_RATE_DROP_FACTOR = 10 ** (-0.5)
 
+
 class ImageDataset(Dataset):
     """PyTorch Dataset for loading images from file paths."""
 
@@ -154,25 +155,26 @@ def nn_function(
     classes = np.unique(labels)
     num_classes = len(classes)
 
-    # Load the pretrained ResNet50 model
-    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+    # Initialize EfficientNet
+    model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
-    # Freeze the base model
-    for param in model.parameters():
-        param.requires_grad = False
-
-    # Replace the final classification layer
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    # Modify the final layer to match the number of classes
+    num_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_features, num_classes)
 
     # Move model to device (CPU/GPU/MPS)
     model = model.to(device)
 
     # Set up loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=INITIAL_LEARNING_RATE, momentum=MOMENTUM)
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=INITIAL_LEARNING_RATE, momentum=MOMENTUM
+    )
 
     # Set up learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=LEARN_RATE_DROP_PERIOD, gamma=LEARN_RATE_DROP_FACTOR)
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=LEARN_RATE_DROP_PERIOD, gamma=LEARN_RATE_DROP_FACTOR
+    )
 
     # Prepare checkpoint directory
     if not os.path.exists(checkpoint_path):
@@ -239,7 +241,9 @@ def nn_function(
                 val_total = 0
                 with torch.no_grad():
                     for val_inputs, val_labels in val_loader:
-                        val_inputs, val_labels = val_inputs.to(device), val_labels.to(device)
+                        val_inputs, val_labels = val_inputs.to(device), val_labels.to(
+                            device
+                        )
                         val_outputs = model(val_inputs)
                         v_loss = criterion(val_outputs, val_labels)
                         val_loss += v_loss.item() * val_inputs.size(0)
@@ -247,7 +251,9 @@ def nn_function(
                         val_total += val_labels.size(0)
                         val_correct += (val_predicted == val_labels).sum().item()
                 current_val_loss = val_loss / val_total
-                print(f"[Epoch {epoch+1}, Iteration {iteration}] Validation Loss: {current_val_loss:.4f}")
+                print(
+                    f"[Epoch {epoch+1}, Iteration {iteration}] Validation Loss: {current_val_loss:.4f}"
+                )
                 early_stopping(current_val_loss, model)
                 if early_stopping.early_stop:
                     print("Early stopping triggered during epoch validation")

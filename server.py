@@ -44,7 +44,7 @@ def load_models():
 
     if os.path.exists(CHECKPOINT_PATH_VAL):
         try:
-            MODEL_VAL = load_resnet50_model(2, CHECKPOINT_PATH_VAL)
+            MODEL_VAL = load_efficientnet_model(2, CHECKPOINT_PATH_VAL)
             print("Loaded valence model from checkpoint:", CHECKPOINT_PATH_VAL)
         except Exception as e:
             print("Error loading valence model:", e)
@@ -53,7 +53,7 @@ def load_models():
 
     if os.path.exists(CHECKPOINT_PATH_CON):
         try:
-            MODEL_CON = load_resnet50_model(18, CHECKPOINT_PATH_CON)
+            MODEL_CON = load_efficientnet_model(18, CHECKPOINT_PATH_CON)
             print("Loaded context model from checkpoint:", CHECKPOINT_PATH_CON)
         except Exception as e:
             print("Error loading context model:", e)
@@ -61,13 +61,14 @@ def load_models():
         print("Context model checkpoint not found.")
 
 
-def load_resnet50_model(num_classes, checkpoint_path):
-    # Create a ResNet50 model, modify the final fc layer for num_classes
-    model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
+def load_efficientnet_model(num_classes, checkpoint_path):
+    # Create an EfficientNet model, modify the final layer for num_classes
+    model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
+    num_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(num_features, num_classes)
     # Load state dict from checkpoint
     state_dict = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)  # load with strict=False to ignore missing keys
     model.to(device)
     model.eval()
     return model
@@ -170,7 +171,7 @@ def upload():
 
     # Use the pre-loaded models rather than loading on every request
     if MODEL_VAL is not None:
-        with torch.no_grad():
+        with torch.inference_mode():  # Using inference_mode for faster inference
             val_prediction = MODEL_VAL(preprocessed_input)
             print("Raw valence prediction values:", val_prediction.cpu().numpy())
             predicted_val_class = int(torch.argmax(val_prediction, dim=1)[0])
@@ -179,14 +180,12 @@ def upload():
         result["valence_prediction"] = "N/A"
 
     if MODEL_CON is not None:
-        with torch.no_grad():
+        with torch.inference_mode():  # Using inference_mode for faster inference
             con_prediction = MODEL_CON(preprocessed_input)
             print("Raw context prediction values:", con_prediction.cpu().numpy())
             predicted_con_class = int(torch.argmax(con_prediction, dim=1)[0])
             context_mapping = get_context_mapping()
-            result["context_prediction"] = context_mapping.get(
-                predicted_con_class, "Unknown"
-            )
+            result["context_prediction"] = context_mapping.get(predicted_con_class, "Unknown")
     else:
         result["context_prediction"] = "N/A"
 
