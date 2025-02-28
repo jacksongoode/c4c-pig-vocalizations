@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 # Check if MPS is available for Apple Silicon
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
 print(f"Using device: {device}")
 
 # Fine-tuning hyperparameters (matching MATLAB NN_prep_for_classify.m)
