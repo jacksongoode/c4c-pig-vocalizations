@@ -140,10 +140,10 @@ if __name__ == "__main__":
     # Load the models from the checkpoints
     try:
         model_val = load_efficientnet_model(
-            2, "checkpoints/Valence/save/model_checkpoint_best.pt"
+            2, "checkpoints/valence/save/model_checkpoint_best_acc.pt"
         )
         model_con = load_efficientnet_model(
-            18, "checkpoints/Context/save/model_checkpoint_best.pt"
+            18, "checkpoints/context/save/model_checkpoint_best_acc.pt"
         )
 
         # Set models to evaluation mode

@@ -5,6 +5,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from nn_function import RobustLoss  # Import our custom robust loss
 from utils import get_device
 
 # Use the utility function to get the device
@@ -35,7 +36,9 @@ def nn_prep_for_classify(
 
     # Setup optimizer for fine-tuning with very low learning rate
     optimizer = torch.optim.SGD(model.parameters(), lr=FINE_TUNE_INITIAL_LEARNING_RATE)
-    criterion = nn.CrossEntropyLoss()
+
+    # Use our robust loss function for fine-tuning too
+    criterion = RobustLoss()
 
     # Determine validation frequency: floor(number of training iterations per epoch)
     val_frequency = max(1, len(train_loader.dataset) // FINE_TUNE_MINIBATCH_SIZE)
@@ -69,11 +72,9 @@ def nn_prep_for_classify(
         batch_acc = (predicted == target_labels).sum().item() / target_labels.size(0)
 
         # Update progress bar
-        progress_bar.set_postfix({
-            "loss": f"{loss.item():.4f}",
-            "acc": f"{batch_acc:.4f}",
-            "iter": iteration
-        })
+        progress_bar.set_postfix(
+            {"loss": f"{loss.item():.4f}", "acc": f"{batch_acc:.4f}", "iter": iteration}
+        )
 
         # Mid-epoch validation
         if iteration % val_frequency == 0:
@@ -86,7 +87,9 @@ def nn_prep_for_classify(
 
     # End of epoch: Evaluate on validation set
     val_loss, val_acc = validate_model(model, val_loader, criterion)
-    progress_bar.write(f"Fine-tuning - Final Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+    progress_bar.write(
+        f"Fine-tuning - Final Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}"
+    )
 
     return model
 
@@ -124,8 +127,12 @@ def validate_model(
 
             # Update progress bar with current loss and accuracy
             batch_loss = loss.item()
-            batch_acc = (predicted == target_labels).sum().item() / target_labels.size(0)
-            progress_bar.set_postfix({"loss": f"{batch_loss:.4f}", "acc": f"{batch_acc:.4f}"})
+            batch_acc = (predicted == target_labels).sum().item() / target_labels.size(
+                0
+            )
+            progress_bar.set_postfix(
+                {"loss": f"{batch_loss:.4f}", "acc": f"{batch_acc:.4f}"}
+            )
 
     val_epoch_loss = val_loss / val_total
     val_epoch_acc = val_correct / val_total

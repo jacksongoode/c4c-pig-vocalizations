@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch import nn
@@ -99,16 +100,62 @@ def balance_dataset(
     return balanced_files, balanced_labels
 
 
+# Create a helper function for loading models from checkpoints
+def load_model_from_checkpoint(model, checkpoint_path, device, strict=False, verbose=True):
+    """Load a model from a checkpoint with proper error handling.
+
+    Args:
+        model: The model to load weights into
+        checkpoint_path: Path to the checkpoint file
+        device: Device to load the model on
+        strict: Whether to strictly enforce that the keys in state_dict match the model
+        verbose: Whether to print detailed diagnostic messages
+
+    Returns:
+        Tuple[bool, str]: (Success status, Message)
+    """
+    if not os.path.exists(checkpoint_path):
+        return False, f"Checkpoint not found: {checkpoint_path}"
+
+    try:
+        state_dict = torch.load(checkpoint_path, map_location=device)
+
+        # If it's not a dict, it might be a complete model
+        if not isinstance(state_dict, dict):
+            return False, f"Invalid checkpoint format: {checkpoint_path} is not a state dictionary"
+
+        # Check if keys match before loading
+        model_keys = set(model.state_dict().keys())
+        loaded_keys = set(state_dict.keys())
+
+        missing_in_model = loaded_keys - model_keys
+        missing_in_checkpoint = model_keys - loaded_keys
+
+        # Load the state dict
+        model.load_state_dict(state_dict, strict=strict)
+
+        # Verify the model loaded correctly
+        loaded_keys_count = len(set(model.state_dict().keys()).intersection(loaded_keys))
+        total_keys = len(model_keys)
+        if verbose:
+            print(f"Loaded {loaded_keys_count}/{total_keys} model parameters")
+
+        return True, f"Successfully loaded checkpoint: {checkpoint_path}"
+    except Exception as e:
+        return False, f"Error loading checkpoint: {e}"
+
+
 class EarlyStopping:
-    """Early stopping to stop training when validation loss doesn't improve."""
+    """Early stopping to stop training when validation loss or accuracy doesn't improve."""
 
     def __init__(
         self,
-        patience: int = 7,
-        verbose: bool = False,
-        delta: float = 0,
-        path: str = "checkpoint.pt",
-        progress_bar = None,
+        patience=7,
+        verbose=False,
+        delta=0,
+        path="checkpoint.pt",
+        progress_bar=None,
+        monitor="loss",
     ):
         """Initialize early stopping.
 
@@ -118,6 +165,7 @@ class EarlyStopping:
             delta: Minimum change in monitored quantity to qualify as improvement.
             path: Path to save the checkpoint.
             progress_bar: tqdm progress bar to write messages to.
+            monitor: Metric to monitor ('loss' or 'accuracy').
         """
         self.patience = patience
         self.verbose = verbose
@@ -125,53 +173,113 @@ class EarlyStopping:
         self.best_score = None
         self.early_stop = False
         self.val_loss_min = np.inf
+        self.val_acc_max = 0.0
         self.delta = delta
         self.path = path
         self.progress_bar = progress_bar
+        self.monitor = monitor
 
-    def __call__(self, val_loss: float, model: nn.Module) -> None:
+        # Create paths for loss and accuracy checkpoints
+        # Extract directory and filename
+        directory = os.path.dirname(path)
+        filename = os.path.basename(path)
+        base_name = os.path.splitext(filename)[0]
+        
+        # Remove any existing 'best' from the base name
+        base_name = base_name.replace('_best', '')
+        
+        # Create the paths with appropriate suffixes
+        self.path = os.path.join(directory, f"{base_name}_best.pt")
+        self.acc_path = os.path.join(directory, f"{base_name}_best_acc.pt")
+        
+        # Only log paths in verbose mode if explicitly requested
+        if verbose and False:  # Disabled by default
+            self._log_message(f"Checkpoint paths: \nLoss: {self.path}\nAccuracy: {self.acc_path}")
+
+    def __call__(self, val_loss, val_acc, model):
         """Check if training should be stopped.
 
         Args:
             val_loss: Validation loss.
-            model: PyTorch model to save if validation loss improves.
+            val_acc: Validation accuracy.
+            model: PyTorch model to save if validation metric improves.
         """
-        score = -val_loss
+        # Always save best accuracy model regardless of monitor setting
+        if val_acc > self.val_acc_max:
+            self._save_checkpoint(
+                model,
+                self.acc_path,
+                f"Validation accuracy increased ({self.val_acc_max:.6f} --> {val_acc:.6f})",
+            )
+            self.val_acc_max = val_acc
 
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            if self.verbose:
-                self._log_message(f"EarlyStopping counter: {self.counter} out of {self.patience}")
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model)
-            self.counter = 0
+        # Monitor either loss or accuracy for early stopping
+        if self.monitor == "loss":
+            score = -val_loss
+            is_improvement = (
+                score > self.best_score + self.delta
+                if self.best_score is not None
+                else True
+            )
 
-    def save_checkpoint(self, val_loss: float, model: nn.Module) -> None:
-        """Save model checkpoint.
+            if is_improvement:
+                self._save_checkpoint(
+                    model,
+                    self.path,
+                    f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f})",
+                )
+                self.val_loss_min = val_loss
+                self.best_score = score
+                self.counter = 0
+            else:
+                self._handle_no_improvement()
 
-        Args:
-            val_loss: Validation loss.
-            model: PyTorch model to save.
-        """
+        else:  # monitor == 'accuracy'
+            score = val_acc
+            is_improvement = (
+                score > self.best_score + self.delta
+                if self.best_score is not None
+                else True
+            )
+
+            if is_improvement:
+                # Already saved in the always-save block above
+                self.best_score = score
+                self.counter = 0
+            else:
+                self._handle_no_improvement()
+
+    def _handle_no_improvement(self):
+        """Handle the case when there's no improvement in the monitored metric."""
+        self.counter += 1
         if self.verbose:
             self._log_message(
-                f"Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model..."
+                f"EarlyStopping counter: {self.counter} out of {self.patience}"
             )
-        torch.save(model.state_dict(), self.path)
-        self.val_loss_min = val_loss
+        if self.counter >= self.patience:
+            self.early_stop = True
 
-    def _log_message(self, message: str) -> None:
-        """Log a message using the progress bar if available, otherwise print.
+    def _save_checkpoint(self, model, path, message):
+        """Save a model checkpoint.
 
         Args:
-            message: Message to log.
+            model: The model to save
+            path: Where to save the model
+            message: Message to log on successful save
         """
+        if self.verbose:
+            self._log_message(message)
+
+        try:
+            torch.save(model.state_dict(), path)
+            if self.verbose and os.path.exists(path):
+                size_mb = os.path.getsize(path) / (1024 * 1024)
+                self._log_message(f"Saved checkpoint: {path} ({size_mb:.2f} MB)")
+        except Exception as e:
+            self._log_message(f"Error saving checkpoint: {e}")
+
+    def _log_message(self, message):
+        """Log a message using the progress bar if available, otherwise print."""
         if self.progress_bar is not None:
             self.progress_bar.write(message)
         else:
@@ -221,7 +329,7 @@ def train_model(
                 loss = criterion(outputs, target_labels)
         except TypeError:
             # Fall back to older PyTorch versions or CPU
-            if use_amp and device.type == 'cuda':
+            if use_amp and device.type == "cuda":
                 # For older PyTorch with CUDA
                 with torch.cuda.autocast(enabled=use_amp):
                     outputs = model(inputs)
@@ -245,7 +353,9 @@ def train_model(
         # Update progress bar with current loss and accuracy
         batch_loss = loss.item()
         batch_acc = (predicted == target_labels).sum().item() / target_labels.size(0)
-        progress_bar.set_postfix({"loss": f"{batch_loss:.4f}", "acc": f"{batch_acc:.4f}"})
+        progress_bar.set_postfix(
+            {"loss": f"{batch_loss:.4f}", "acc": f"{batch_acc:.4f}"}
+        )
 
     return running_loss / total, correct / total
 
@@ -287,7 +397,7 @@ def validate_model(
                     loss = criterion(outputs, target_labels)
             except TypeError:
                 # Fall back to older PyTorch versions or CPU
-                if use_amp and device.type == 'cuda':
+                if use_amp and device.type == "cuda":
                     # For older PyTorch with CUDA
                     with torch.cuda.amp.autocast(enabled=use_amp):
                         outputs = model(inputs)
@@ -304,13 +414,111 @@ def validate_model(
 
             # Update progress bar with current loss and accuracy
             batch_loss = loss.item()
-            batch_acc = (predicted == target_labels).sum().item() / target_labels.size(0)
-            progress_bar.set_postfix({"loss": f"{batch_loss:.4f}", "acc": f"{batch_acc:.4f}"})
+            batch_acc = (predicted == target_labels).sum().item() / target_labels.size(
+                0
+            )
+            progress_bar.set_postfix(
+                {"loss": f"{batch_loss:.4f}", "acc": f"{batch_acc:.4f}"}
+            )
 
     val_epoch_loss = val_loss / val_total
     val_epoch_acc = val_correct / val_total
 
     return val_epoch_loss, val_epoch_acc
+
+
+# Add robust loss function
+class FocalLoss(nn.Module):
+    """Focal Loss implementation.
+
+    Focal Loss reduces the relative loss for well-classified examples and focuses
+    more on hard, misclassified examples. This can help with class imbalance and
+    outliers/misclassifications.
+
+    Args:
+        alpha: Optional weighting factor for class imbalance, can be a tensor of size [num_classes].
+        gamma: Focusing parameter. Higher gamma reduces the relative loss for well-classified examples.
+        reduction: 'none', 'mean', or 'sum'
+    """
+
+    def __init__(self, alpha=None, gamma=2.0, reduction="mean"):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: Predictions from model (before softmax) of shape [B, C]
+            targets: Ground truth class indices of shape [B]
+
+        Returns:
+            loss: Scalar loss value
+        """
+        log_softmax = F.log_softmax(inputs, dim=1)
+        CE = F.nll_loss(log_softmax, targets, reduction="none")
+
+        # Get the correctly predicted probability
+        logpt = log_softmax.gather(1, targets.unsqueeze(1))
+        logpt = logpt.squeeze(1)
+        pt = torch.exp(logpt)
+
+        # Compute the focal weight
+        focal_weight = (1 - pt) ** self.gamma
+
+        # Apply class weights if provided
+        if self.alpha is not None:
+            if isinstance(self.alpha, torch.Tensor):
+                alpha_t = self.alpha.gather(0, targets)
+                focal_weight = alpha_t * focal_weight
+            else:
+                focal_weight = self.alpha * focal_weight
+
+        loss = focal_weight * CE
+
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        else:  # 'none'
+            return loss
+
+
+# Create a robust loss that's a combination of focal loss and cross-entropy
+class RobustLoss(nn.Module):
+    """Robust loss function that combines Focal Loss and Cross-Entropy.
+
+    This loss function helps to address the decorrelation between loss and accuracy
+    by being less sensitive to outliers and misclassifications.
+
+    Args:
+        alpha: Weight for balancing focal loss vs cross-entropy (0-1)
+        gamma: Focusing parameter for focal loss
+        class_weights: Optional weighting for classes
+    """
+
+    def __init__(self, alpha=0.5, gamma=2.0, class_weights=None):
+        super(RobustLoss, self).__init__()
+        self.alpha = alpha
+        self.focal_loss = FocalLoss(alpha=class_weights, gamma=gamma)
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
+
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: Predictions from model (before softmax) of shape [B, C]
+            targets: Ground truth class indices of shape [B]
+
+        Returns:
+            loss: Combined loss value
+        """
+        # Calculate both losses
+        fl = self.focal_loss(inputs, targets)
+        ce = self.ce_loss(inputs, targets)
+
+        # Combine losses with weighting factor
+        return self.alpha * fl + (1 - self.alpha) * ce
 
 
 def nn_function(
@@ -322,39 +530,34 @@ def nn_function(
     checkpoint_path: str,
     use_amp: bool = False,
     skip_training: bool = False,
+    monitor: str = "accuracy",
 ) -> Tuple[nn.Module, DataLoader, DataLoader, List[int], Dict[int, int], DataLoader]:
-    """
-    Equivalent to MATLAB NN_function.m using PyTorch
+    """Train a neural network model on the provided data.
 
     Args:
-        file_paths: List of image file paths (strings).
+        file_paths: List of image file paths.
         labels: List of labels corresponding to each image.
-        equalize_labels: Whether to equalize label counts in the dataset.
+        equalize_labels: Whether to balance the dataset.
         minibatch_size: Batch size for training.
         validation_patience: Patience for early stopping.
-        checkpoint_path: Directory to save model checkpoints.
+        checkpoint_path: Directory to save checkpoints.
         use_amp: Whether to use mixed precision training.
-        skip_training: Whether to skip training and load checkpoint if available.
+        skip_training: Whether to load from checkpoint instead of training.
+        monitor: Metric to monitor ('loss' or 'accuracy').
 
     Returns:
-        Tuple containing:
-            model: The trained PyTorch model.
-            train_loader: Training data loader.
-            val_loader: Validation data loader.
-            val_labels: List of validation labels.
-            val_label_counts: Dictionary with counts per label in the validation set.
-            val_loader: Augmented validation data loader (same as val_loader here).
+        Tuple of (model, train_loader, val_loader, val_labels, val_label_counts, aug_val_loader)
     """
     # If equalizing labels, balance the dataset
     if equalize_labels:
         file_paths, labels = balance_dataset(file_paths, labels)
 
-    # Split dataset into training (70%) and validation (30%) sets
+    # Split dataset into training and validation sets
     train_files, val_files, train_labels, val_labels = train_test_split(
         file_paths, labels, test_size=0.3, stratify=labels, random_state=42
     )
 
-    # Create PyTorch datasets and data loaders
+    # Create data loaders
     train_dataset = ImageDataset(train_files, train_labels)
     val_dataset = ImageDataset(val_files, val_labels)
 
@@ -362,8 +565,8 @@ def nn_function(
         train_dataset,
         batch_size=minibatch_size,
         shuffle=True,
-        num_workers=2,  # Use multiple workers for parallel loading
-        pin_memory=True,  # Speed up host to device transfers
+        num_workers=2,
+        pin_memory=True,
     )
 
     val_loader = DataLoader(
@@ -374,27 +577,18 @@ def nn_function(
         pin_memory=True,
     )
 
-    # Determine number of classes
-    classes = np.unique(labels)
-    num_classes = len(classes)
-
-    # Initialize EfficientNet
+    # Determine number of classes and initialize model
+    num_classes = len(np.unique(labels))
     model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
-
-    # Modify the final layer to match the number of classes
     num_features = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(num_features, num_classes)
-
-    # Move model to device (CPU/GPU/MPS)
     model = model.to(device)
 
     # Set up loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
+    criterion = RobustLoss()
     optimizer = torch.optim.SGD(
         model.parameters(), lr=INITIAL_LEARNING_RATE, momentum=MOMENTUM
     )
-
-    # Set up learning rate scheduler - use StepLR to match MATLAB's piecewise scheduler
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
         step_size=LEARN_RATE_DROP_PERIOD,
@@ -403,80 +597,133 @@ def nn_function(
 
     # Prepare checkpoint directory
     checkpoint_path = setup_checkpoint_dir(checkpoint_path)
+    acc_checkpoint_path = os.path.join(checkpoint_path, "model_checkpoint_best_acc.pt")
+    loss_checkpoint_path = os.path.join(checkpoint_path, "model_checkpoint_best.pt")
 
-    # Training loop
-    n_epochs = MAX_EPOCHS
+    # If skip_training, try to load model from checkpoint
+    if skip_training:
+        # Show which checkpoint files we're looking for
+        print("Looking for checkpoint files:")
+        print(f"- Accuracy-based: {acc_checkpoint_path} (exists: {os.path.exists(acc_checkpoint_path)})")
+        print(f"- Loss-based: {loss_checkpoint_path} (exists: {os.path.exists(loss_checkpoint_path)})")
+        
+        loaded = False
+        
+        # Try accuracy checkpoint first if monitoring accuracy
+        if monitor == "accuracy" and os.path.exists(acc_checkpoint_path):
+            print(f"Attempting to load accuracy-based model")
+            success, message = load_model_from_checkpoint(
+                model, acc_checkpoint_path, device, strict=False, verbose=False
+            )
+            loaded = success
+            if success:
+                print(f"Successfully loaded accuracy-based model")
+            
+        # If accuracy checkpoint failed or we're monitoring loss, try loss checkpoint
+        if not loaded and os.path.exists(loss_checkpoint_path):
+            print(f"Attempting to load best loss model")
+            success, message = load_model_from_checkpoint(
+                model, loss_checkpoint_path, device, strict=False, verbose=False
+            )
+            loaded = success
+            if success:
+                print(f"Successfully loaded loss-based model")
 
-    # Create a progress bar for epochs - use position to prevent overlapping
-    epoch_progress = tqdm(range(n_epochs), desc="Training Progress", position=0)
+        if loaded:
+            print("Loaded model from checkpoint, skipping training.")
+            return (
+                model,
+                train_loader,
+                val_loader,
+                val_labels,
+                dict(Counter(val_labels)),
+                val_loader,
+            )
+        else:
+            print("No valid checkpoint found. Training will proceed.")
 
-    # Setup early stopping with progress bar
+    # Set up for training
+    epoch_progress = tqdm(range(MAX_EPOCHS), desc="Training Progress", position=0)
     early_stopping = EarlyStopping(
         patience=validation_patience,
         verbose=True,
-        path=os.path.join(checkpoint_path, "model_checkpoint_best.pt"),
+        path=loss_checkpoint_path,
         progress_bar=epoch_progress,
+        monitor=monitor,
     )
 
-    # Initialize GradScaler for mixed precision
-    # Check if PyTorch version supports device_type parameter
+    # Initialize tracking variables
+    best_acc = 0.0
+    best_acc_epoch = 0
+    best_loss = float("inf")
+    best_loss_epoch = 0
+
+    # Initialize gradient scaler for mixed precision
     try:
-        # Try with device_type parameter (newer PyTorch versions)
         scaler = torch.amp.GradScaler(device_type=device.type, enabled=use_amp)
     except TypeError:
-        # Fall back to older PyTorch versions without device_type parameter
         scaler = torch.amp.GradScaler(enabled=use_amp)
 
-    # If skip_training flag is True, load the checkpoint and skip training
-    if skip_training:
-        checkpoint_file = os.path.join(checkpoint_path, "model_checkpoint_best.pt")
-        if os.path.exists(checkpoint_file):
-            model.load_state_dict(torch.load(checkpoint_file, map_location=device))
-            print(f"Loaded model checkpoint from {checkpoint_file}, skipping training.")
-            lbl_counts = dict(Counter(val_labels))
-            return model, train_loader, val_loader, val_labels, lbl_counts, val_loader
-        else:
-            print(f"Checkpoint not found at {checkpoint_file}. Training will proceed.")
-
+    # Training loop
     for epoch_idx in epoch_progress:
         # Train for one epoch
         epoch_loss, epoch_acc = train_model(
-            model,
-            train_loader,
-            optimizer,
-            criterion,
-            scaler,
-            use_amp,
+            model, train_loader, optimizer, criterion, scaler, use_amp
         )
 
         # Validate after each epoch
         val_loss, val_acc = validate_model(model, val_loader, criterion, use_amp)
 
-        # Update epoch progress bar with metrics
-        epoch_progress.set_postfix({
-            "epoch": epoch_idx + 1,
-            "train_loss": f"{epoch_loss:.4f}",
-            "train_acc": f"{epoch_acc:.4f}",
-            "val_loss": f"{val_loss:.4f}",
-            "val_acc": f"{val_acc:.4f}"
-        })
+        # Update tracking for best accuracy and loss
+        if val_acc > best_acc:
+            best_acc = val_acc
+            best_acc_epoch = epoch_idx
+
+        if val_loss < best_loss:
+            best_loss = val_loss
+            best_loss_epoch = epoch_idx
+
+        # Update progress bar
+        epoch_progress.set_postfix(
+            {
+                "epoch": epoch_idx + 1,
+                "train_loss": f"{epoch_loss:.4f}",
+                "train_acc": f"{epoch_acc:.4f}",
+                "val_loss": f"{val_loss:.4f}",
+                "val_acc": f"{val_acc:.4f}",
+                "best_acc": f"{best_acc:.4f}",
+                "best_loss": f"{best_loss:.4f}",
+            }
+        )
 
         # Step the learning rate scheduler
         scheduler.step()
 
         # Check early stopping
-        early_stopping(val_loss, model)
+        early_stopping(val_loss, val_acc, model)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
 
-    # Load the best model
-    model.load_state_dict(
-        torch.load(
-            os.path.join(checkpoint_path, "model_checkpoint_best.pt"),
-            map_location=device,
+    # Load the best model based on the monitored metric
+    print(f"Loading best {'accuracy' if monitor == 'accuracy' else 'loss'} model...")
+
+    if monitor == "accuracy" and os.path.exists(acc_checkpoint_path):
+        success, message = load_model_from_checkpoint(
+            model, acc_checkpoint_path, device, strict=False, verbose=False
         )
-    )
+        if success:
+            print(f"Loaded best accuracy model (epoch {best_acc_epoch+1}, acc={best_acc:.4f})")
+        else:
+            print(f"Failed to load best accuracy model: {message}")
+    else:
+        success, message = load_model_from_checkpoint(
+            model, loss_checkpoint_path, device, strict=False, verbose=False
+        )
+        if success:
+            print(f"Loaded best loss model (epoch {best_loss_epoch+1}, loss={best_loss:.4f})")
+        else:
+            print(f"Failed to load best loss model: {message}")
 
     return (
         model,
@@ -506,6 +753,7 @@ if __name__ == "__main__":
             minibatch_size=32,
             validation_patience=5,
             checkpoint_path="checkpoints",
+            monitor="accuracy",
         )
     )
     print("Training complete.")
