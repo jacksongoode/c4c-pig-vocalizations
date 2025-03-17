@@ -1,10 +1,13 @@
 import functools
+import json
 import os
+import tempfile
 from typing import Dict, Tuple
 
 import librosa
 import matplotlib
 import numpy as np
+import requests
 import torch
 import torch.nn as nn
 from flask import Flask, jsonify, render_template, request, send_from_directory
@@ -23,8 +26,11 @@ device = get_device()
 
 app = Flask(__name__)
 
-# Directory to save uploads:
-UPLOAD_FOLDER = "/tmp"  # Changed to /tmp for Vercel
+# Determine if we're running on Vercel based on environment variables
+is_vercel = os.environ.get("VERCEL") == "1"
+
+# Directory to save uploads - use /tmp on Vercel, uploads folder locally
+UPLOAD_FOLDER = "/tmp" if is_vercel else "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -37,7 +43,8 @@ PREPROCESS_TRANSFORM = transforms.Compose(
     [transforms.Resize((224, 224)), transforms.ToTensor()]
 )
 
-# Add Vercel handler
+
+# Add Vercel handler - this is used only in Vercel environment
 def handler(request):
     """Handle requests from Vercel."""
     with app.request_context(request):
@@ -60,12 +67,20 @@ def get_model(model_type: str) -> nn.Module:
     """
     if model_type == "valence":
         checkpoint_path = os.path.join(
-            os.getcwd(), "checkpoints", "Valence", "save", "model_checkpoint_best_acc.pt"
+            os.getcwd(),
+            "checkpoints",
+            "Valence",
+            "save",
+            "model_checkpoint_best_acc.pt",
         )
         num_classes = 2
     elif model_type == "context":
         checkpoint_path = os.path.join(
-            os.getcwd(), "checkpoints", "Context", "save", "model_checkpoint_best_acc.pt"
+            os.getcwd(),
+            "checkpoints",
+            "Context",
+            "save",
+            "model_checkpoint_best_acc.pt",
         )
         num_classes = 18
     else:
@@ -223,18 +238,51 @@ def upload():
     Returns:
         JSON response with processing results or error message.
     """
-    if "audio-file" not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    file = request.files["audio-file"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
+    # Handle different request types based on environment
+    is_json_request = (
+        request.content_type and "application/json" in request.content_type
+    )
+
+    if is_json_request:
+        # Handle blob URL format (Vercel deployment)
+        data = request.get_json()
+        if not data or "blobUrl" not in data:
+            return jsonify({"error": "No blob URL provided"}), 400
+
+        try:
+            # Download the file from the blob URL
+            response = requests.get(data["blobUrl"])
+            if response.status_code != 200:
+                return jsonify({"error": "Failed to download file from blob URL"}), 400
+
+            # Create a temporary file
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=os.path.splitext(data.get("filename", "audio.wav"))[1],
+            ) as temp_file:
+                temp_file.write(response.content)
+                file_path = temp_file.name
+
+        except Exception as e:
+            return jsonify({"error": f"Error downloading from blob: {str(e)}"}), 500
+    else:
+        # Handle direct file upload (local development)
+        if "audio-file" not in request.files:
+            return jsonify({"error": "No file part"}), 400
+
+        file = request.files["audio-file"]
+        if file.filename == "":
+            return jsonify({"error": "No selected file"}), 400
+
+        try:
+            # Secure the filename and save the file
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            file.save(file_path)
+        except Exception as e:
+            return jsonify({"error": f"Error saving file: {str(e)}"}), 500
 
     try:
-        # Secure the filename and save the file
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        file.save(file_path)
-
         # Preprocess the file
         preprocessed_input, spectrogram_path = preprocess_audio(file_path)
         print("Preprocessed input shape:", preprocessed_input.shape)
@@ -242,17 +290,23 @@ def upload():
         result = {
             "message": "Audio processed successfully",
             "file": os.path.basename(file_path),
-            "spectrogram": os.path.basename(spectrogram_path),
         }
+
+        # The way we handle spectrogram paths is different in local vs Vercel
+        if is_vercel:
+            # For Vercel, return the full path (the spectrogram is temporary)
+            result["spectrogram"] = spectrogram_path
+        else:
+            # For local, return the path relative to the uploads folder
+            result["spectrogram"] = f"/uploads/{os.path.basename(spectrogram_path)}"
 
         # Use the pre-loaded models rather than loading on every request
         if MODEL_VAL is not None:
-            with torch.inference_mode():  # Using inference_mode for faster inference
+            with torch.inference_mode():
                 val_prediction = MODEL_VAL(preprocessed_input)
                 print("Raw valence prediction values:", val_prediction.cpu().numpy())
                 predicted_val_class = int(torch.argmax(val_prediction, dim=1)[0])
                 result["valence_prediction"] = predicted_val_class
-                # Add confidence score
                 confidence = torch.nn.functional.softmax(val_prediction, dim=1)[0][
                     predicted_val_class
                 ].item()
@@ -262,7 +316,7 @@ def upload():
             result["valence_confidence"] = "N/A"
 
         if MODEL_CON is not None:
-            with torch.inference_mode():  # Using inference_mode for faster inference
+            with torch.inference_mode():
                 con_prediction = MODEL_CON(preprocessed_input)
                 print("Raw context prediction values:", con_prediction.cpu().numpy())
                 predicted_con_class = int(torch.argmax(con_prediction, dim=1)[0])
@@ -270,7 +324,6 @@ def upload():
                 result["context_prediction"] = context_mapping.get(
                     predicted_con_class, "Unknown"
                 )
-                # Add confidence score
                 confidence = torch.nn.functional.softmax(con_prediction, dim=1)[0][
                     predicted_con_class
                 ].item()
@@ -278,6 +331,11 @@ def upload():
         else:
             result["context_prediction"] = "N/A"
             result["context_confidence"] = "N/A"
+
+        # In Vercel environment, cleanup temporary files
+        if is_vercel:
+            os.unlink(file_path)
+            os.unlink(spectrogram_path)
 
         return jsonify(result)
 

@@ -115,6 +115,12 @@
     </div>
 
     <script>
+      // Check if we're running on Vercel by looking for the Vercel domain
+      const isVercel =
+        window.location.hostname.includes("vercel.app") ||
+        (window.location.hostname === "localhost" &&
+          window.location.search.includes("vercel=1"));
+
       document
         .getElementById("upload-form")
         .addEventListener("submit", async function (e) {
@@ -136,14 +142,47 @@
           analyzeBtn.classList.add("bg-blue-400");
           analyzeBtn.classList.remove("bg-blue-500", "hover:bg-blue-600");
 
-          const formData = new FormData();
-          formData.append("audio-file", file);
-
           try {
-            const response = await fetch("/upload", {
-              method: "POST",
-              body: formData,
-            });
+            let response;
+
+            if (isVercel) {
+              // Vercel deployment path
+              // First, upload to Vercel Blob
+              const formData = new FormData();
+              formData.append("file", file);
+
+              const uploadResponse = await fetch("/api/upload", {
+                method: "POST",
+                body: formData,
+              });
+
+              if (!uploadResponse.ok) {
+                throw new Error("Failed to upload file");
+              }
+
+              const { url } = await uploadResponse.json();
+
+              // Then, send the blob URL to our processing endpoint
+              response = await fetch("/upload", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  blobUrl: url,
+                  filename: file.name,
+                }),
+              });
+            } else {
+              // Local development path
+              const formData = new FormData();
+              formData.append("audio-file", file);
+
+              response = await fetch("/upload", {
+                method: "POST",
+                body: formData,
+              });
+            }
 
             const result = await response.json();
 
@@ -179,7 +218,7 @@
 
               // Use the context prediction string directly for display
               const contextText = result.context_prediction;
-              const contextClass = "text-blue-500"; // You can update this to use a mapping if desired
+              const contextClass = "text-blue-500";
 
               predictionEl.innerHTML = `
             <div class="${valenceClass} font-medium">Valence: ${valenceText}</div>
@@ -189,8 +228,7 @@
 
             // Display spectrogram
             if (result.spectrogram) {
-              document.getElementById("spectrogram").src =
-                `/uploads/${result.spectrogram.split("/").pop()}`;
+              document.getElementById("spectrogram").src = result.spectrogram;
             }
           } catch (error) {
             console.error("Error:", error);
