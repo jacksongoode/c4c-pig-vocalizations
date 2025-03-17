@@ -54,12 +54,12 @@ def get_model(model_type: str) -> nn.Module:
     """
     if model_type == "valence":
         checkpoint_path = os.path.join(
-            os.getcwd(), "checkpoints", "Valence", "save", "model_checkpoint_best.pt"
+            os.getcwd(), "checkpoints", "Valence", "save", "model_checkpoint_best_acc.pt"
         )
         num_classes = 2
     elif model_type == "context":
         checkpoint_path = os.path.join(
-            os.getcwd(), "checkpoints", "Context", "save", "model_checkpoint_best.pt"
+            os.getcwd(), "checkpoints", "Context", "save", "model_checkpoint_best_acc.pt"
         )
         num_classes = 18
     else:
