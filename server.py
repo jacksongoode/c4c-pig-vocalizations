@@ -24,7 +24,7 @@ device = get_device()
 app = Flask(__name__)
 
 # Directory to save uploads:
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = "/tmp"  # Changed to /tmp for Vercel
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
@@ -36,6 +36,12 @@ MODEL_CON = None
 PREPROCESS_TRANSFORM = transforms.Compose(
     [transforms.Resize((224, 224)), transforms.ToTensor()]
 )
+
+# Add Vercel handler
+def handler(request):
+    """Handle requests from Vercel."""
+    with app.request_context(request):
+        return app.dispatch_request()
 
 
 @functools.lru_cache(maxsize=2)
@@ -294,5 +300,5 @@ def uploaded_file(filename):
 
 
 if __name__ == "__main__":
-    load_models()
+    load_models()  # Load models when running locally
     app.run(debug=False, host="0.0.0.0")
