@@ -7,7 +7,7 @@
       "config": {
         "runtime": "python3.12",
         "maxDuration": 60,
-        "installCommand": "pip install uv && uv pip install -e ."
+        "installCommand": "pip install -r requirements.txt"
       }
     },
     {
@@ -16,7 +16,7 @@
       "config": {
         "runtime": "python3.12",
         "maxDuration": 60,
-        "installCommand": "pip install uv && uv pip install -e ."
+        "installCommand": "pip install -r requirements.txt"
       }
     }
   ],

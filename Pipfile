@@ -1,0 +1,26 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+torch = "*"
+torchvision = "*"
+flask = "*"
+numpy = "*"
+librosa = "*"
+matplotlib = "*"
+pandas = "*"
+pillow = "*"
+requests = "*"
+uvicorn = "*"
+asgiref = "*"
+scikit-learn = "*"
+
+[[tool.pypi.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[requires]
+python_version = "3.12" 

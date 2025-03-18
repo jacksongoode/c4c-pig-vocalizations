@@ -1,6 +1,5 @@
 import os
 import sys
-import torch
 
 import uvicorn
 from asgiref.wsgi import WsgiToAsgi
@@ -29,8 +28,8 @@ def upload_model_to_blob(model_path):
         }
 
         response = requests.put(
-            "https://api.vercel.com/v2/blobs", 
-            headers=headers, 
+            "https://api.vercel.com/v2/blobs",
+            headers=headers,
             data=model_data
         )
 
@@ -48,8 +47,9 @@ def upload_model_to_blob(model_path):
 
 def main():
     """Main entry point for the application."""
-    # Check if running on Vercel
+    # Check if running on Vercel or local dev mode
     is_vercel = os.environ.get("VERCEL") == "1"
+    is_dev = os.environ.get("DEV_MODE") == "1"
     
     if is_vercel:
         # On Vercel, upload models to Blob
@@ -79,6 +79,10 @@ def main():
     # Try to load models, but continue even if they fail
     print("Loading models...")
     try:
+        if is_dev:
+            print("Running in development mode - skipping model loading")
+            # In dev mode, don't try to load the actual models
+            os.environ["SKIP_MODEL_LOADING"] = "1"
         load_models()
         print("Models loaded successfully")
     except Exception as e:

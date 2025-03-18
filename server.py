@@ -119,6 +119,14 @@ def load_models() -> None:
     """Load models into global variables."""
     print("Loading models...")
     global MODEL_VAL, MODEL_CON
+    
+    # Check if we should skip model loading (for dev mode)
+    if os.environ.get("SKIP_MODEL_LOADING") == "1":
+        print("Skipping model loading due to SKIP_MODEL_LOADING=1")
+        # Create dummy models for development
+        MODEL_VAL = DummyModel(2)
+        MODEL_CON = DummyModel(18)
+        return
 
     try:
         MODEL_VAL = get_model("valence")
@@ -377,6 +385,20 @@ def uploaded_file(filename):
         File response.
     """
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+
+
+class DummyModel(nn.Module):
+    """Dummy model for development that returns random outputs."""
+    
+    def __init__(self, num_classes):
+        super().__init__()
+        self.num_classes = num_classes
+    
+    def forward(self, x):
+        """Generate random predictions."""
+        batch_size = x.shape[0]
+        # Return random logits
+        return torch.randn(batch_size, self.num_classes, device=device)
 
 
 if __name__ == "__main__":

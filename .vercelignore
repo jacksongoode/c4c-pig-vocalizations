@@ -16,3 +16,5 @@ docs/
 examples/
 *.md
 !README.md
+checkpoints/Valence/save/model_checkpoint_best_acc.pt
+checkpoints/Context/save/model_checkpoint_best_acc.pt
