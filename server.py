@@ -1,5 +1,4 @@
 import functools
-import json
 import os
 import tempfile
 from typing import Dict, Tuple
@@ -74,6 +73,7 @@ def get_model(model_type: str) -> nn.Module:
             "model_checkpoint_best_acc.pt",
         )
         num_classes = 2
+        env_var = "MODEL_VAL_URL"
     elif model_type == "context":
         checkpoint_path = os.path.join(
             os.getcwd(),
@@ -83,8 +83,30 @@ def get_model(model_type: str) -> nn.Module:
             "model_checkpoint_best_acc.pt",
         )
         num_classes = 18
+        env_var = "MODEL_CON_URL"
     else:
         raise ValueError(f"Unknown model type: {model_type}")
+
+    # Check if running on Vercel and model is not available locally
+    if is_vercel and not os.path.exists(checkpoint_path):
+        # Try to download model from Vercel Blob
+        blob_url = os.environ.get(env_var)
+        if blob_url:
+            print(f"Downloading {model_type} model from Vercel Blob")
+            try:
+                # Create directory structure if it doesn't exist
+                os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+                
+                # Download model from Vercel Blob
+                response = requests.get(blob_url)
+                if response.status_code == 200:
+                    with open(checkpoint_path, 'wb') as f:
+                        f.write(response.content)
+                    print(f"Downloaded {model_type} model successfully")
+                else:
+                    print(f"Failed to download {model_type} model: {response.status_code}")
+            except Exception as e:
+                print(f"Error downloading {model_type} model: {e}")
 
     if os.path.exists(checkpoint_path):
         model = load_efficientnet_model(num_classes, checkpoint_path)

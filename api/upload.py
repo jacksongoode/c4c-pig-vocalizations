@@ -22,39 +22,35 @@ def handler(request: BaseHTTPRequestHandler) -> Dict[str, Any]:
         # Parse the multipart form data
         boundary = content_type.split("=")[1].encode()
         remaining_bytes = int(request.headers.get("content-length", 0))
-
-        # Skip headers to get to file content
         line = request.rfile.readline()
         remaining_bytes -= len(line)
+
+        # Skip headers
         while line.strip(b"\r\n"):
             line = request.rfile.readline()
             remaining_bytes -= len(line)
 
-        # Set up headers for Vercel Blob
+        # Read the file content
+        file_content = b""
+        while remaining_bytes > 0:
+            line = request.rfile.readline()
+            remaining_bytes -= len(line)
+            if boundary in line:
+                break
+            file_content += line
+
+        # Upload to Vercel Blob
         headers = {
             "Authorization": f"Bearer {BLOB_READ_WRITE_TOKEN}",
             "Content-Type": "application/octet-stream",
         }
 
-        # Create a generator to stream the file content directly
-        def file_content_generator():
-            nonlocal remaining_bytes
-            while remaining_bytes > 0:
-                chunk = request.rfile.readline()
-                remaining_bytes -= len(chunk)
-                if boundary in chunk:
-                    break
-                yield chunk
-
-        # Stream upload to Vercel Blob without loading entire file into memory
         response = requests.put(
-            "https://api.vercel.com/v2/blobs",
-            headers=headers,
-            data=file_content_generator(),
+            "https://api.vercel.com/v2/blobs", headers=headers, data=file_content
         )
 
         if response.status_code != 200:
-            return {"error": f"Failed to upload to Vercel Blob: {response.text}"}, 500
+            return {"error": "Failed to upload to Vercel Blob"}, 500
 
         blob_data = response.json()
         return {"url": blob_data["url"]}
